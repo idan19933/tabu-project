@@ -387,6 +387,7 @@ export interface ApplyResearchResponse {
     revenue: number;
     mix: number;
   };
+  locked_from_tabu?: Record<string, number>;
 }
 
 // --- Research Preview ---
@@ -397,6 +398,7 @@ export interface ResearchPreviewField {
   current: number | null;
   proposed: number;
   will_change: boolean;
+  differs: boolean;
   is_pct: boolean;
   is_locked: boolean;
 }
@@ -407,6 +409,7 @@ export interface ResearchPreviewResponse {
   summary: {
     total_fields: number;
     will_change: number;
+    differs: number;
     will_keep: number;
     locked_count: number;
   };

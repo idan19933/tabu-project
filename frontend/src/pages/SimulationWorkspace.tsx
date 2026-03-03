@@ -500,9 +500,20 @@ export default function SimulationWorkspace() {
             <Card>
               <div className="flex items-center gap-3">
                 <CheckCircle2 size={20} className="text-emerald-500" />
-                <span className="text-sm font-medium text-emerald-700">
-                  ערכי ברירת מחדל מבוססי שוק הוחלו בהצלחה
-                </span>
+                <div>
+                  <span className="text-sm font-medium text-emerald-700">
+                    ערכי ברירת מחדל מבוססי שוק הוחלו בהצלחה
+                  </span>
+                  {researchSummary && (
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {researchSummary.neighborhood && <>{researchSummary.neighborhood}</>}
+                      {researchSummary.market_trend && <> | {researchSummary.market_trend}</>}
+                    </p>
+                  )}
+                  <p className="text-xs text-amber-600 mt-0.5">
+                    שטח קו כחול נעול מנתוני טאבו
+                  </p>
+                </div>
               </div>
             </Card>
           </motion.section>
