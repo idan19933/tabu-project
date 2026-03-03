@@ -30,6 +30,45 @@ LOCKED_TABU_FIELDS = frozenset({
     "blue_line_area",
 })
 
+# Safety-net mapping: research agent output key → actual DB column name.
+# If agent output already uses the correct name it maps to itself (identity).
+# Prevents "0 שדות נמצאו" when there is a key-name mismatch.
+_FIELD_MAP: dict[str, str] = {
+    # Planning
+    "num_floors": "number_of_floors",
+    "far_multiplier": "multiplier_far",
+    "avg_apt_size": "avg_apt_size_sqm",
+    "coverage_percent": "coverage_above_ground",
+    "parking_ratio": "parking_standard_ratio",
+    "parking_gross_sqm": "gross_area_per_parking",
+    "balcony_per_unit": "balcony_area_per_unit",
+    "min_floor_area": "typ_floor_area_min",
+    "max_floor_area": "typ_floor_area_max",
+    "min_apts_per_floor": "apts_per_floor_min",
+    "max_apts_per_floor": "apts_per_floor_max",
+    "public_commercial_area": "public_area_sqm",
+    # Cost
+    "construction_residential_per_sqm": "cost_per_sqm_residential",
+    "construction_service_per_sqm": "cost_per_sqm_service",
+    "construction_commercial_per_sqm": "cost_per_sqm_commercial",
+    "construction_balcony_per_sqm": "cost_per_sqm_balcony",
+    "construction_development_per_sqm": "cost_per_sqm_development",
+    "construction_parking_per_sqm": "parking_construction",
+    "index_linkage": "cpi_linkage_pct",
+    # Revenue
+    "price_per_parking": "price_per_sqm_parking",
+    "marketing_discount_percent": "marketing_discount_pct",
+}
+
+
+def _map_field_names(data: dict) -> dict:
+    """Translate any non-standard research output keys to DB column names."""
+    mapped = {}
+    for k, v in data.items():
+        db_col = _FIELD_MAP.get(k, k)  # use mapping or keep original
+        mapped[db_col] = v
+    return mapped
+
 
 def _run_research_background(project_id: str, tabu_data: dict) -> None:
     """Background task that runs the market research agent."""
@@ -228,11 +267,11 @@ def preview_research(
     research = project.market_research_data
     data_sources = research.get("data_sources", {})
 
-    # Collect all proposed fields from research
+    # Collect all proposed fields from research (mapped through safety-net)
     sections = {
-        "planning_parameters": research.get("planning_parameters", {}),
-        "cost_parameters": research.get("cost_parameters", {}),
-        "revenue_parameters": research.get("revenue_parameters", {}),
+        "planning_parameters": _map_field_names(research.get("planning_parameters", {})),
+        "cost_parameters": _map_field_names(research.get("cost_parameters", {})),
+        "revenue_parameters": _map_field_names(research.get("revenue_parameters", {})),
     }
 
     # Skip non-parameter keys
@@ -328,12 +367,20 @@ def apply_research_to_simulation(
         raise HTTPException(404, "Simulation not found")
 
     research = project.market_research_data
-    planning_data = {**research.get("planning_parameters", {})}
-    cost_data = {**research.get("cost_parameters", {})}
-    revenue_data = {**research.get("revenue_parameters", {})}
+
+    # Map field names through safety-net mapping (handles any agent output key mismatches)
+    planning_data = _map_field_names(research.get("planning_parameters", {}))
+    cost_data = _map_field_names(research.get("cost_parameters", {}))
+    revenue_data = _map_field_names(research.get("revenue_parameters", {}))
     mix_data = research.get("apartment_mix", [])
 
-    # Strip locked tabu fields — these MUST NOT be overwritten by research or overrides
+    # Get real tabu values for locked field enforcement
+    tabu = project.tabu_data or {}
+    tabu_locked_values = {
+        "blue_line_area": tabu.get("shared_area_sqm") or tabu.get("area_sqm"),
+    }
+
+    # Strip locked tabu fields from research data AND overrides
     for locked_field in LOCKED_TABU_FIELDS:
         planning_data.pop(locked_field, None)
         cost_data.pop(locked_field, None)
@@ -341,9 +388,12 @@ def apply_research_to_simulation(
         if overrides:
             overrides.pop(locked_field, None)
 
-    # Apply user overrides (overrides win over research values)
+    # Apply user overrides (overrides win over research values), also mapped
     if overrides:
-        for k, v in overrides.items():
+        mapped_overrides = _map_field_names(overrides)
+        for k, v in mapped_overrides.items():
+            if k in LOCKED_TABU_FIELDS:
+                continue  # double safety
             if k in planning_data or k.startswith(("returns_", "avg_", "number_", "coverage_", "multiplier_", "blue_line_", "parking_standard_", "gross_area_", "service_area_", "balcony_", "return_area_", "public_area_")):
                 planning_data[k] = v
             elif k.startswith("price_") or k in ("sales_pace_per_month", "marketing_discount_pct"):
@@ -448,6 +498,18 @@ def apply_research_to_simulation(
                 ))
                 counts["mix"] += 1
 
+    # --- ENFORCE tabu locked values (CRITICAL — overwrite whatever is there) ---
+    pp = db.query(PlanningParameter).filter(
+        PlanningParameter.simulation_id == sim.id
+    ).first()
+    if pp:
+        for field, tabu_val in tabu_locked_values.items():
+            if tabu_val is not None and hasattr(pp, field):
+                current = getattr(pp, field, None)
+                if current != tabu_val:
+                    logger.info(f"LOCKED {field}: enforcing tabu={tabu_val} (was {current})")
+                    setattr(pp, field, tabu_val)
+
     db.commit()
 
     total = counts["planning"] + counts["costs"] + counts["revenue"] + counts["mix"]
@@ -455,4 +517,5 @@ def apply_research_to_simulation(
         "status": "applied",
         "message": f"Applied {total} fields from market research",
         "fields_populated": counts,
+        "locked_from_tabu": {k: v for k, v in tabu_locked_values.items() if v is not None},
     }

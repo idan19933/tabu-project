@@ -387,6 +387,7 @@ export interface ApplyResearchResponse {
     revenue: number;
     mix: number;
   };
+  locked_from_tabu?: Record<string, number>;
 }
 
 // --- Research Preview ---
