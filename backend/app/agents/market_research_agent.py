@@ -51,11 +51,17 @@ def _extract_json(response) -> dict:
         return {"_parse_error": True, "_raw_text": cleaned[:500]}
 
 
+def _is_tel_aviv(city: str) -> bool:
+    """Check if city is Tel Aviv (Hebrew or English)."""
+    c = city.lower()
+    return "תל אביב" in c or "tel aviv" in c or "tel-aviv" in c
+
+
 def _default_floors(location: dict) -> int:
     """Default floor count based on city/area."""
     city = location.get("city", "")
     sub = location.get("sub_area", "")
-    if "תל אביב" in city:
+    if _is_tel_aviv(city):
         if sub == "south":
             return 8
         if sub in ("central", "north"):
@@ -73,7 +79,7 @@ def _default_floors(location: dict) -> int:
 def _default_coverage(location: dict) -> float:
     """Default coverage based on city."""
     city = location.get("city", "")
-    if "תל אביב" in city:
+    if _is_tel_aviv(city):
         return 0.55
     return 0.60
 
@@ -518,9 +524,10 @@ def _step5_generate_parameters(client: anthropic.Anthropic, locked: dict,
     developer_units = max(0, new_units - existing_units)
     developer_fp = max(0, total_floorplate - return_fp)
 
-    # Parking
+    # Parking — use locked["city"] (always Hebrew) for reliable checks
     parking_ratio = 1.0
-    if "תל אביב" in location.get("city", ""):
+    city_for_checks = locked.get("city", "") or location.get("city", "")
+    if "תל אביב" in city_for_checks or "tel aviv" in city_for_checks.lower():
         parking_ratio = 0.8
     parking_gross = 35
 
@@ -741,8 +748,15 @@ def _validate_and_fix(parameters: dict, locked: dict) -> dict:
         costs["cost_per_sqm_residential"] = 8000
         fixes.append(f"Fixed construction cost: {res_cost:,} -> 8,000 (unrealistically low)")
 
-    # 5. Betterment levy cap (~150K per existing unit)
+    # 5. Betterment levy: must be absolute NIS, not a percentage
     betterment = costs.get("betterment_levy", 0)
+    if 0 < betterment < 1000:
+        # Looks like a percentage (e.g., 0.06 = 6%), not an absolute NIS value
+        # Default to 100K per existing unit for pinui-binui
+        default_betterment = locked["existing_units"] * 100000 if locked["existing_units"] > 0 else 800000
+        fixes.append(f"Fixed betterment: {betterment} -> {default_betterment:,} (was percentage, converted to absolute NIS)")
+        costs["betterment_levy"] = default_betterment
+        betterment = default_betterment
     if locked["existing_units"] > 0:
         max_betterment = locked["existing_units"] * 150000
         if betterment > max_betterment:
