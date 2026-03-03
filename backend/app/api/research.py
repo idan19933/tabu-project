@@ -188,6 +188,14 @@ _FIELD_LABELS = {
     "gross_area_per_parking": ("תכנון", 'שטח ברוטו לחנייה (מ"ר)'),
     "service_area_percent": ("תכנון", "% שטחי שירות"),
     "balcony_area_per_unit": ("תכנון", 'מרפסת ליחידה (מ"ר)'),
+    "return_area_per_apt": ("תכנון", 'תוספת שטח תמורה (מ"ר)'),
+    "service_area_sqm": ("תכנון", 'שטחי שירות (מ"ר)'),
+    "public_area_sqm": ("תכנון", 'שטחים ציבוריים (מ"ר)'),
+    "parking_floor_area": ("תכנון", 'שטח קומת חניה (מ"ר)'),
+    "typ_floor_area_min": ("תכנון", 'שטח קומה טיפוסית מינ׳ (מ"ר)'),
+    "typ_floor_area_max": ("תכנון", 'שטח קומה טיפוסית מקס׳ (מ"ר)'),
+    "apts_per_floor_min": ("תכנון", "דירות לקומה מינ׳"),
+    "apts_per_floor_max": ("תכנון", "דירות לקומה מקס׳"),
     # Cost — absolute
     "cost_per_sqm_residential": ("עלויות", 'עלות בנייה למ"ר מגורים'),
     "cost_per_sqm_service": ("עלויות", 'עלות בנייה למ"ר שירות'),
@@ -284,7 +292,8 @@ def preview_research(
     }
 
     # Skip non-parameter keys
-    skip_keys = {"data_sources", "ai_extraction_metadata", "vat_rate", "_locked_from_tabu", "_metadata"}
+    skip_keys = {"data_sources", "ai_extraction_metadata", "vat_rate", "_locked_from_tabu", "_metadata",
+                  "planning_stage", "building_lines_notes", "public_tasks_notes", "price_per_unit_by_type"}
 
     fields = []
     for section_key, section_data in sections.items():
