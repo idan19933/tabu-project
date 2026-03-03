@@ -1,1 +1,114 @@
-{"id":"f081cd53-a1bb-4f3c-b2da-301069f75989","version_name":"???????? ????? - 24 ????? - העתק","status":"Approved_For_Calc","created_at":"2026-03-02T06:13:22.912976Z","project_id":"67dcd9e9-b4f5-41c9-a8a1-1a164c49a501","planning_parameters":{"returns_percent":25.0,"multiplier_far":3.8,"avg_apt_size_sqm":100.0,"service_area_sqm":15.0,"number_of_floors":24,"coverage_above_ground":45.0,"coverage_underground":75.0,"gross_area_per_parking":30.0,"building_lines_notes":"???? ?????: 5 ??? ????, 3 ??? ??, 6 ??? ????","public_tasks_notes":"????? 500 ?? ??? ??????, ????? ???? ????","parking_standard_ratio":1.5,"typ_floor_area_min":450.0,"typ_floor_area_max":650.0,"apts_per_floor_min":4,"apts_per_floor_max":6,"return_area_per_apt":85.0,"service_area_percent":15.0,"public_area_sqm":300.0,"parking_floor_area":1250.0,"balcony_area_per_unit":12.0,"blue_line_area":2450.0,"planning_stage":"????? ??????","ai_extraction_metadata":null},"apartment_mix":[{"apartment_type":"3 ?????","quantity":24,"percentage_of_mix":20.0,"id":"18fe1042-35d8-4288-b8af-fe11f4339fa5"},{"apartment_type":"4 ?????","quantity":48,"percentage_of_mix":40.0,"id":"e6888ac6-9068-40df-85c7-86ae5fe617ec"},{"apartment_type":"5 ?????","quantity":30,"percentage_of_mix":25.0,"id":"1e1310f9-614a-415d-8d97-5b7099a8dfe4"},{"apartment_type":"???? ???????","quantity":12,"percentage_of_mix":10.0,"id":"11c327d1-363f-42ef-b5bf-e25a56923f76"},{"apartment_type":"???????","quantity":6,"percentage_of_mix":5.0,"id":"32291daf-00bc-4eef-93f5-29245c20a820"}],"economic_parameters":null,"cost_parameters":{"construction_duration_months":36,"cost_per_sqm_residential":12500.0,"cost_per_sqm_service":8000.0,"cost_per_sqm_commercial":10000.0,"cost_per_sqm_balcony":6000.0,"cost_per_sqm_development":2500.0,"betterment_levy":3500000.0,"purchase_tax":0.0,"planning_consultants":4500000.0,"permits_fees":1200000.0,"electricity_connection":800000.0,"bank_supervision":600000.0,"engineering_management":2000000.0,"tenant_supervision":400000.0,"management_overhead":3000000.0,"marketing_advertising":2500000.0,"tenant_lawyer":500000.0,"initiation_fee":1500000.0,"rent_subsidy":4800000.0,"evacuation_cost":200000.0,"moving_cost":150000.0,"contingency":3000000.0,"developer_lawyer":1200000.0,"demolition":2000000.0,"construction_total":0.0,"parking_construction":8000000.0,"financing_interest_rate":5.5,"vat_rate":17.0,"cpi_linkage_pct":2.5,"ai_extraction_metadata":null},"revenue_parameters":{"price_per_unit_by_type":{"3 ?????":2800000,"4 ?????":3600000,"5 ?????":4500000,"???? ???????":5200000,"???????":7500000},"price_per_sqm_residential":52000.0,"price_per_sqm_commercial":38000.0,"sales_pace_per_month":4.0,"marketing_discount_pct":3.0,"price_per_sqm_parking":180000.0,"price_per_sqm_storage":25000.0,"ai_extraction_metadata":null},"simulation_results":null}
+{
+    "id": "f081cd53-a1bb-4f3c-b2da-301069f75989",
+    "version_name": "???????? ????? - 24 ????? - העתק",
+    "status": "Approved_For_Calc",
+    "created_at": "2026-03-02T06:13:22.912976Z",
+    "project_id": "67dcd9e9-b4f5-41c9-a8a1-1a164c49a501",
+    "planning_parameters": {
+        "returns_percent": 25.0,
+        "multiplier_far": 3.8,
+        "avg_apt_size_sqm": 100.0,
+        "service_area_sqm": 15.0,
+        "number_of_floors": 24,
+        "coverage_above_ground": 45.0,
+        "coverage_underground": 75.0,
+        "gross_area_per_parking": 30.0,
+        "building_lines_notes": "???? ?????: 5 ??? ????, 3 ??? ??, 6 ??? ????",
+        "public_tasks_notes": "????? 500 ?? ??? ??????, ????? ???? ????",
+        "parking_standard_ratio": 1.5,
+        "typ_floor_area_min": 450.0,
+        "typ_floor_area_max": 650.0,
+        "apts_per_floor_min": 4,
+        "apts_per_floor_max": 6,
+        "return_area_per_apt": 85.0,
+        "service_area_percent": 15.0,
+        "public_area_sqm": 300.0,
+        "parking_floor_area": 1250.0,
+        "balcony_area_per_unit": 12.0,
+        "blue_line_area": 2450.0,
+        "planning_stage": "????? ??????",
+        "ai_extraction_metadata": null
+    },
+    "apartment_mix": [
+        {
+            "apartment_type": "3 ?????",
+            "quantity": 24,
+            "percentage_of_mix": 20.0,
+            "id": "18fe1042-35d8-4288-b8af-fe11f4339fa5"
+        },
+        {
+            "apartment_type": "4 ?????",
+            "quantity": 48,
+            "percentage_of_mix": 40.0,
+            "id": "e6888ac6-9068-40df-85c7-86ae5fe617ec"
+        },
+        {
+            "apartment_type": "5 ?????",
+            "quantity": 30,
+            "percentage_of_mix": 25.0,
+            "id": "1e1310f9-614a-415d-8d97-5b7099a8dfe4"
+        },
+        {
+            "apartment_type": "???? ???????",
+            "quantity": 12,
+            "percentage_of_mix": 10.0,
+            "id": "11c327d1-363f-42ef-b5bf-e25a56923f76"
+        },
+        {
+            "apartment_type": "???????",
+            "quantity": 6,
+            "percentage_of_mix": 5.0,
+            "id": "32291daf-00bc-4eef-93f5-29245c20a820"
+        }
+    ],
+    "economic_parameters": null,
+    "cost_parameters": {
+        "construction_duration_months": 36,
+        "cost_per_sqm_residential": 12500.0,
+        "cost_per_sqm_service": 8000.0,
+        "cost_per_sqm_commercial": 10000.0,
+        "cost_per_sqm_balcony": 6000.0,
+        "cost_per_sqm_development": 2500.0,
+        "betterment_levy": 3500000.0,
+        "purchase_tax": 0.0,
+        "planning_consultants": 4500000.0,
+        "permits_fees": 1200000.0,
+        "electricity_connection": 800000.0,
+        "bank_supervision": 600000.0,
+        "engineering_management": 2000000.0,
+        "tenant_supervision": 400000.0,
+        "management_overhead": 3000000.0,
+        "marketing_advertising": 2500000.0,
+        "tenant_lawyer": 500000.0,
+        "initiation_fee": 1500000.0,
+        "rent_subsidy": 4800000.0,
+        "evacuation_cost": 200000.0,
+        "moving_cost": 150000.0,
+        "contingency": 3000000.0,
+        "developer_lawyer": 1200000.0,
+        "demolition": 2000000.0,
+        "construction_total": 0.0,
+        "parking_construction": 8000000.0,
+        "financing_interest_rate": 5.5,
+        "vat_rate": 17.0,
+        "cpi_linkage_pct": 2.5,
+        "ai_extraction_metadata": null
+    },
+    "revenue_parameters": {
+        "price_per_unit_by_type": {
+            "3 ?????": 2800000,
+            "4 ?????": 3600000,
+            "5 ?????": 4500000,
+            "???? ???????": 5200000,
+            "???????": 7500000
+        },
+        "price_per_sqm_residential": 52000.0,
+        "price_per_sqm_commercial": 38000.0,
+        "sales_pace_per_month": 4.0,
+        "marketing_discount_pct": 3.0,
+        "price_per_sqm_parking": 180000.0,
+        "price_per_sqm_storage": 25000.0,
+        "ai_extraction_metadata": null
+    },
+    "simulation_results": null
+}

@@ -1,1 +1,71 @@
-{"has_delta":true,"deltas":{"profit":{"before":1072585400.9,"after":161173400.9,"change":-911412000.0,"change_pct":-84.97},"expected_profit":{"before":1072585400.9,"after":161173400.9,"change":-911412000.0,"change_pct":-84.97},"profitability_rate":{"before":451.9,"after":67.91,"change":-383.99,"change_pct":-84.97},"profit_percent":{"before":451.9,"after":67.91,"change":-383.99,"change_pct":-84.97},"irr":{"before":14.52,"after":4.39,"change":-10.13,"change_pct":-69.77},"npv":{"before":922263654.83,"after":125221257.22,"change":-797042397.61,"change_pct":-86.42},"total_revenue":{"before":1350450000.0,"after":410850000.0,"change":-939600000.0,"change_pct":-69.58},"net_revenue":{"before":1309936500.0,"after":398524500.0,"change":-911412000.0,"change_pct":-69.58},"total_costs":{"before":237351099.1,"after":237351099.1,"change":0.0,"change_pct":0.0},"total_costs_incl_vat":{"before":237351099.1,"after":237351099.1,"change":0.0,"change_pct":0.0},"total_costs_excl_vat":{"before":202864187.27,"after":202864187.27,"change":0.0,"change_pct":0.0}}}
+{
+    "has_delta": true,
+    "deltas": {
+        "profit": {
+            "before": 1072585400.9,
+            "after": 161173400.9,
+            "change": -911412000.0,
+            "change_pct": -84.97
+        },
+        "expected_profit": {
+            "before": 1072585400.9,
+            "after": 161173400.9,
+            "change": -911412000.0,
+            "change_pct": -84.97
+        },
+        "profitability_rate": {
+            "before": 451.9,
+            "after": 67.91,
+            "change": -383.99,
+            "change_pct": -84.97
+        },
+        "profit_percent": {
+            "before": 451.9,
+            "after": 67.91,
+            "change": -383.99,
+            "change_pct": -84.97
+        },
+        "irr": {
+            "before": 14.52,
+            "after": 4.39,
+            "change": -10.13,
+            "change_pct": -69.77
+        },
+        "npv": {
+            "before": 922263654.83,
+            "after": 125221257.22,
+            "change": -797042397.61,
+            "change_pct": -86.42
+        },
+        "total_revenue": {
+            "before": 1350450000.0,
+            "after": 410850000.0,
+            "change": -939600000.0,
+            "change_pct": -69.58
+        },
+        "net_revenue": {
+            "before": 1309936500.0,
+            "after": 398524500.0,
+            "change": -911412000.0,
+            "change_pct": -69.58
+        },
+        "total_costs": {
+            "before": 237351099.1,
+            "after": 237351099.1,
+            "change": 0.0,
+            "change_pct": 0.0
+        },
+        "total_costs_incl_vat": {
+            "before": 237351099.1,
+            "after": 237351099.1,
+            "change": 0.0,
+            "change_pct": 0.0
+        },
+        "total_costs_excl_vat": {
+            "before": 202864187.27,
+            "after": 202864187.27,
+            "change": 0.0,
+            "change_pct": 0.0
+        }
+    }
+}
