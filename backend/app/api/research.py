@@ -108,9 +108,13 @@ def _run_research_background(project_id: str, tabu_data: dict) -> None:
 def trigger_research(
     project_id: UUID,
     background_tasks: BackgroundTasks,
+    force: bool = False,
     db: Session = Depends(get_db),
 ):
-    """Trigger market research for a project. Returns immediately."""
+    """Trigger market research for a project. Returns immediately.
+
+    Pass ?force=true to re-run even if already completed.
+    """
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(404, "Project not found")
@@ -118,8 +122,8 @@ def trigger_research(
     if not project.tabu_data:
         raise HTTPException(400, "No tabu data found. Upload and extract tabu first.")
 
-    # Already completed?
-    if project.market_research_status == "completed" and project.market_research_data:
+    # Already completed? (skip if force=true)
+    if not force and project.market_research_status == "completed" and project.market_research_data:
         return {
             "status": "completed",
             "message": "Market research already completed.",
@@ -131,6 +135,11 @@ def trigger_research(
             "status": "running",
             "message": "Market research is already running...",
         }
+
+    # Clear previous data when forcing re-run
+    if force:
+        logger.info(f"Force re-running research for project {project_id}")
+        project.market_research_data = None
 
     # Trigger in background
     background_tasks.add_task(_run_research_background, str(project_id), project.tabu_data)
