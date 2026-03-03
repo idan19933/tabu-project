@@ -591,11 +591,11 @@ Write in Hebrew. Be specific about THIS property."""}],
         "research_summary": {
             "neighborhood": location.get("neighborhood", ""),
             "area_description": f"{location.get('sub_area', '')} {location.get('city', '')}",
-            "zoning": ", ".join(zoning.get("applicable_plans", [])),
+            "zoning": ", ".join(zoning.get("applicable_plans") or []),
             "conservation_status": zoning.get("conservation_status", "none"),
             "applicable_plans": zoning.get("applicable_plans", []),
             "market_trend": f"Residential: {res_price:,} NIS/sqm | Construction: {res_cost:,} NIS/sqm",
-            "comparable_projects": ", ".join(prices.get("comparable_projects", [])),
+            "comparable_projects": ", ".join(prices.get("comparable_projects") or []),
             "summary_text": summary_text,
             "confidence": {
                 "costs": costs.get("confidence", "medium"),
@@ -683,7 +683,7 @@ Write in Hebrew. Be specific about THIS property."""}],
             "construction_costs": costs.get("cost_data_source", ""),
             "sales_prices": prices.get("price_data_source", ""),
             "planning": zoning.get("sources", []),
-            "comparable_projects": ", ".join(prices.get("comparable_projects", [])),
+            "comparable_projects": ", ".join(prices.get("comparable_projects") or []),
         },
         "_locked_from_tabu": {
             "blue_line_area": blue_line,
@@ -782,23 +782,70 @@ def run_market_research(tabu_data: dict, project_id: str) -> dict:
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     # === LOCKED VALUES from Tabu (NEVER overwrite these) ===
+    # Build sub_parcels from owners if not provided directly
     sub_parcels = tabu_data.get("sub_parcels", [])
+    if not sub_parcels:
+        # Derive from owners — group by sub_parcel number
+        owners = tabu_data.get("owners", [])
+        sp_map: dict[str, dict] = {}
+        for o in owners:
+            sp_id = o.get("sub_parcel")
+            if sp_id and sp_id not in sp_map:
+                sp_map[sp_id] = {
+                    "sub_parcel": sp_id,
+                    "area_sqm": o.get("area_sqm", 0),
+                    "floor": o.get("floor", ""),
+                }
+        sub_parcels = list(sp_map.values())
+        logger.info(f"Derived {len(sub_parcels)} sub_parcels from owners list")
+
     existing_area = sum(sp.get("area_sqm", 0) for sp in sub_parcels if sp.get("area_sqm"))
     if not existing_area:
         existing_area = tabu_data.get("total_residential_area_sqm",
                                       tabu_data.get("area_sqm", 0))
 
+    # Count existing units
+    existing_units = tabu_data.get("total_sub_parcels", 0) or len(sub_parcels)
+
+    # Blue line area — try multiple keys
+    blue_line = (tabu_data.get("shared_area_sqm")
+                 or tabu_data.get("lot_area")
+                 or tabu_data.get("area_sqm")
+                 or 0)
+
+    # Floors — try direct value, or infer from owner floor data
+    floors_existing = tabu_data.get("floors", 0)
+    if not floors_existing and sub_parcels:
+        unique_floors = set(sp.get("floor", "") for sp in sub_parcels if sp.get("floor"))
+        floors_existing = len(unique_floors) if unique_floors else 0
+
+    # City — try registry, city, or infer from gush
+    raw_city = tabu_data.get("registry") or tabu_data.get("city") or ""
+    city = _clean_city(raw_city) if raw_city else ""
+    if not city:
+        # Infer from gush range (Tel Aviv gush ranges)
+        gush_num = int(tabu_data.get("block", 0)) if str(tabu_data.get("block", "")).isdigit() else 0
+        if 6000 <= gush_num <= 8000:
+            city = "תל אביב"
+        elif 8000 < gush_num <= 8500:
+            city = "רמת גן"
+        elif 8500 < gush_num <= 9000:
+            city = "גבעתיים"
+
     locked = {
-        "blue_line_area": tabu_data.get("shared_area_sqm", tabu_data.get("lot_area", 0)),
-        "existing_units": tabu_data.get("total_sub_parcels",
-                           len(tabu_data.get("sub_parcels", []))),
+        "blue_line_area": blue_line,
+        "existing_units": existing_units,
         "existing_area": existing_area,
-        "floors_existing": tabu_data.get("floors", 0),
+        "floors_existing": floors_existing,
         "buildings": tabu_data.get("buildings", 1),
         "gush": tabu_data.get("block", ""),
         "chelka": tabu_data.get("parcel", ""),
-        "city": _clean_city(tabu_data.get("registry", tabu_data.get("city", ""))),
+        "city": city,
     }
+
+    # Also pass derived sub_parcels into tabu_data for mix generation
+    if not tabu_data.get("sub_parcels") and sub_parcels:
+        tabu_data = {**tabu_data, "sub_parcels": sub_parcels}
 
     logger.info(f"Running multi-step market research for project {project_id}, "
                 f"gush={locked['gush']}, chelka={locked['chelka']}")
