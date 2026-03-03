@@ -57,9 +57,11 @@ export async function calculateSimulation(req: Request, res: Response, next: Nex
     const id = param(req.params.id);
     const sim = await simulationService.getById(id);
     const results = calculationService.runCalculations(sim);
-    const updated = await simulationService.saveResults(id, results);
-    await simulationService.setStatus(id, SimulationStatus.Completed);
-    res.json(updated);
+    await simulationService.saveResults(id, results);
+    // setStatus returns a full findById result — use it as the response so the
+    // client receives the simulation with status already set to Completed.
+    const completed = await simulationService.setStatus(id, SimulationStatus.Completed);
+    res.json(completed);
   } catch (err) { next(err); }
 }
 
@@ -101,23 +103,41 @@ export async function getDeltaAnalysis(req: Request, res: Response, next: NextFu
     const current = sim.simulationResults;
     const previous = current.previousResultsSnapshot as any;
     if (!previous) {
-      res.json({ message: 'No previous results to compare', delta: null });
+      res.json({ has_delta: false, deltas: {} });
       return;
     }
 
-    const delta: any = {};
-    const keys = ['profit', 'irr', 'npv', 'totalRevenue', 'totalCosts', 'profitabilityRate'];
-    for (const key of keys) {
-      const cur = Number((current as any)[key]) || 0;
-      const prev = Number(previous[key]) || 0;
-      delta[key] = {
-        current: cur,
-        previous: prev,
-        change_absolute: cur - prev,
-        change_pct: prev !== 0 ? ((cur - prev) / Math.abs(prev)) * 100 : 0,
-      };
+    // Map Prisma camelCase field names → snake_case keys (matching frontend DeltaAnalysis type)
+    const fieldMap: Record<string, string> = {
+      profit: 'profit',
+      profitabilityRate: 'profitability_rate',
+      irr: 'irr',
+      npv: 'npv',
+      totalRevenue: 'total_revenue',
+      netRevenue: 'net_revenue',
+      totalCosts: 'total_costs',
+      totalCostsInclVat: 'total_costs_incl_vat',
+      totalCostsExclVat: 'total_costs_excl_vat',
+      expectedProfit: 'expected_profit',
+      profitPercent: 'profit_percent',
+    };
+
+    const deltas: Record<string, { before: number; after: number; change: number; change_pct: number }> = {};
+    for (const [camelKey, snakeKey] of Object.entries(fieldMap)) {
+      const after = Number((current as any)[camelKey]) || 0;
+      // Previous snapshot is already serialized (snake_case keys from prior save)
+      const before = Number(previous[snakeKey] ?? previous[camelKey]) || 0;
+      if (after !== before) {
+        deltas[snakeKey] = {
+          before,
+          after,
+          change: after - before,
+          change_pct: before !== 0 ? ((after - before) / Math.abs(before)) * 100 : 0,
+        };
+      }
     }
-    res.json({ delta });
+
+    res.json({ has_delta: Object.keys(deltas).length > 0, deltas });
   } catch (err) { next(err); }
 }
 

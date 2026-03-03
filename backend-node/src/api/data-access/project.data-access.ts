@@ -5,9 +5,12 @@ const projectWithRelations = {
     select: {
       id: true,
       documentType: true,
+      filePath: true,
+      uploadDate: true,
       extractionStatus: true,
       extractionError: true,
     },
+    orderBy: { uploadDate: 'desc' as const },
   },
   simulations: {
     select: {
@@ -16,6 +19,7 @@ const projectWithRelations = {
       status: true,
       createdAt: true,
     },
+    orderBy: { createdAt: 'desc' as const },
   },
 };
 

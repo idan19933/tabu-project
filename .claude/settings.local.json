@@ -6,7 +6,12 @@
       "Bash(npm install:*)",
       "Bash(npx prisma:*)",
       "Bash(npx tsc:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(curl:*)",
+      "Bash(xargs grep:*)",
+      "Bash(netstat:*)",
+      "Bash(tasklist:*)",
+      "Bash(# Test report with a sim that has no results to check error handling\ncurl -s \"http://localhost:8000/api/simulations/d21ab88d-742c-4317-8c43-23f407694213\" 2>&1 | python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('status:', d.get\\('status'\\)\\); print\\('has_results:', bool\\(d.get\\('simulation_results'\\)\\)\\)\" 2>/dev/null)"
     ]
   }
 }

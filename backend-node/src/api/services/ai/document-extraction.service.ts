@@ -101,7 +101,11 @@ async function detectDocType(text: string): Promise<string> {
   return ['tabu', 'planning', 'economic', 'general'].includes(docType) ? docType : 'general';
 }
 
-export async function runDocumentExtraction(docId: string, projectId: string): Promise<any> {
+export async function runDocumentExtraction(
+  docId: string,
+  projectId: string,
+  hintDocumentType?: string,
+): Promise<any> {
   try {
     await documentDA.updateExtraction(docId, { extractionStatus: ExtractionStatus.Processing });
 
@@ -117,8 +121,19 @@ export async function runDocumentExtraction(docId: string, projectId: string): P
       return { success: false, error: 'Empty document' };
     }
 
-    // Detect document type
-    const docType = await detectDocType(text);
+    // If the user explicitly uploaded the file as 'tabu', trust that hint
+    // rather than relying on AI detection which can misclassify.
+    const explicitType = (hintDocumentType || doc.documentType || '').toLowerCase();
+    const isExplicitTabu = explicitType === 'tabu';
+
+    // Detect document type via AI only when no explicit hint
+    let docType: string;
+    if (isExplicitTabu) {
+      docType = 'tabu';
+    } else {
+      docType = await detectDocType(text);
+    }
+
     await documentDA.updateExtraction(docId, { docType });
 
     let extractedData: any;

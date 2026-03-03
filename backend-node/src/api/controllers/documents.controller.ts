@@ -19,9 +19,10 @@ export async function uploadDocument(req: Request, res: Response, next: NextFunc
       simulation_id
     );
 
-    // Fire-and-forget extraction
+    // Fire-and-forget extraction — pass document_type as a hint so the
+    // extraction service skips AI auto-detection for explicitly-typed docs.
     setImmediate(() => {
-      runDocumentExtraction(doc.id, project_id).catch((err) =>
+      runDocumentExtraction(doc.id, project_id, document_type).catch((err) =>
         logger.error('Extraction failed', err)
       );
     });

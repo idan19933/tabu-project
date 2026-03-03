@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, FileText, Plus, Users, Shield, AlertTriangle, Landmark, Building2, Copy, Upload, Brain, Lock, Search, Loader2, MapPin } from 'lucide-react';
+import { ChevronDown, ChevronUp, FileText, Plus, Users, Shield, AlertTriangle, Landmark, Building2, Copy, Upload, Brain, Search, Loader2, MapPin } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -223,7 +223,19 @@ export default function ProjectDetailPage() {
       (d.extraction_status === 'Processing' || d.extraction_status === 'Pending'),
   ) ?? false;
 
+  // Does a tabu document exist at all (regardless of extraction result)?
+  const hasTabuDoc = project?.documents.some((d) => d.document_type === 'tabu') ?? false;
+  // Does the project have AI-extracted tabu data?
   const hasTabuData = !!project?.tabu_data;
+  // Did the tabu doc complete extraction but yield no data (mis-classified or error)?
+  const tabuDocCompletedEmpty =
+    hasTabuDoc &&
+    !hasTabuData &&
+    !isTabuExtracting &&
+    (project?.documents.some(
+      (d) => d.document_type === 'tabu' && d.extraction_status === 'Completed',
+    ) ?? false);
+
   const researchStatus = project?.market_research_status;
   const researchData = project?.market_research_data;
   const isResearchRunning = researchStatus === 'running';
@@ -332,15 +344,13 @@ export default function ProjectDetailPage() {
             נוצר {new Date(project.created_at).toLocaleDateString('he-IL')}
           </p>
         </div>
-        {hasTabuData && (
-          <Button onClick={() => setShowNewSim(true)}>
-            <Plus size={16} />
-            סימולציה חדשה
-          </Button>
-        )}
+        <Button onClick={() => setShowNewSim(true)}>
+          <Plus size={16} />
+          סימולציה חדשה
+        </Button>
       </div>
 
-      {/* Tabu Data — Upload Gate or Preview */}
+      {/* Tabu Data — Upload zone / extracting / completed-empty / preview */}
       {hasTabuData ? (
         <TabuPreview data={project.tabu_data!} />
       ) : isTabuExtracting ? (
@@ -380,8 +390,41 @@ export default function ProjectDetailPage() {
             </div>
           </Card>
         </section>
+      ) : tabuDocCompletedEmpty ? (
+        /* Tabu doc uploaded but extraction produced no data — allow manual flow */
+        <section className="mb-6">
+          <Card>
+            <div className="flex items-center gap-3 py-2">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-amber-500 shrink-0">
+                <AlertTriangle size={20} className="text-white" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-amber-800">
+                  נסח טאבו הועלה — חילוץ AI לא הצליח לייצר נתונים
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  ניתן ליצור סימולציה ולהזין פרמטרים ידנית, או להעלות קובץ חדש
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = '.pdf';
+                  input.onchange = () => handleTabuUpload(input.files);
+                  input.click();
+                }}
+              >
+                <Upload size={14} />
+                העלה שוב
+              </Button>
+            </div>
+          </Card>
+        </section>
       ) : (
-        /* No tabu — Upload zone */
+        /* No tabu doc at all — show upload zone (optional, not blocking) */
         <section className="mb-6">
           <Card>
             <div
@@ -408,7 +451,7 @@ export default function ProjectDetailPage() {
                 <>
                   <Upload size={40} className="mx-auto text-purple-400 mb-3" />
                   <p className="text-base font-semibold text-slate-700 mb-1">
-                    העלה נסח טאבו (PDF)
+                    העלה נסח טאבו (PDF) — אופציונלי
                   </p>
                   <p className="text-sm text-slate-500">
                     גרור קובץ לכאן או לחץ להעלאה
@@ -420,11 +463,9 @@ export default function ProjectDetailPage() {
               )}
             </div>
           </Card>
-          {/* Lock message */}
           <div className="flex items-center gap-2 mt-3 px-1">
-            <Lock size={14} className="text-slate-400" />
             <p className="text-sm text-slate-400">
-              יש להעלות נסח טאבו לפני יצירת סימולציה
+              ניתן גם ליצור סימולציה ולהזין את הפרמטרים ידנית ללא נסח טאבו
             </p>
           </div>
         </section>
@@ -557,54 +598,52 @@ export default function ProjectDetailPage() {
         </section>
       )}
 
-      {/* Simulations — only visible when tabu exists */}
-      {hasTabuData && (
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold">סימולציות</h2>
-          </div>
-          {!project.simulations.length ? (
-            <Card>
-              <div className="flex flex-col items-center gap-3 py-6 text-center">
-                <p className="text-sm text-slate-400">אין סימולציות עדיין</p>
-                <Button size="sm" onClick={() => setShowNewSim(true)}>
-                  <Plus size={14} /> צור סימולציה ראשונה
-                </Button>
-              </div>
-            </Card>
-          ) : (
-            <div className="space-y-2">
-              {project.simulations.map((sim) => (
-                <Card key={sim.id} hover>
-                  <div className="flex items-center justify-between">
-                    <div
-                      className="flex-1 cursor-pointer"
-                      onClick={() => simClick(sim.id, sim.status)}
-                    >
-                      <h3 className="font-medium">{sim.version_name}</h3>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {new Date(sim.created_at).toLocaleDateString('he-IL')}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge status={sim.status} />
-                      {(sim.status === 'Completed' || sim.status === 'Approved_For_Calc') && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleCloneSim(sim.id); }}
-                          className="p-1.5 text-slate-400 hover:text-primary-600 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
-                          title="שכפל סימולציה"
-                        >
-                          <Copy size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </Card>
-              ))}
+      {/* Simulations — always visible */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold">סימולציות</h2>
+        </div>
+        {!project.simulations.length ? (
+          <Card>
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <p className="text-sm text-slate-400">אין סימולציות עדיין</p>
+              <Button size="sm" onClick={() => setShowNewSim(true)}>
+                <Plus size={14} /> צור סימולציה ראשונה
+              </Button>
             </div>
-          )}
-        </section>
-      )}
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {project.simulations.map((sim) => (
+              <Card key={sim.id} hover>
+                <div className="flex items-center justify-between">
+                  <div
+                    className="flex-1 cursor-pointer"
+                    onClick={() => simClick(sim.id, sim.status)}
+                  >
+                    <h3 className="font-medium">{sim.version_name}</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {new Date(sim.created_at).toLocaleDateString('he-IL')}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge status={sim.status} />
+                    {(sim.status === 'Completed' || sim.status === 'Approved_For_Calc') && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleCloneSim(sim.id); }}
+                        className="p-1.5 text-slate-400 hover:text-primary-600 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+                        title="שכפל סימולציה"
+                      >
+                        <Copy size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </section>
 
       <Modal open={showNewSim} onClose={() => setShowNewSim(false)} title="סימולציה חדשה">
         <div className="space-y-4">

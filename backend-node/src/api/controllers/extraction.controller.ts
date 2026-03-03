@@ -20,10 +20,19 @@ export async function getExtractionStatus(req: Request, res: Response, next: Nex
       activeSimulationStatus = latest.status;
     }
 
-    const extractionProgress: Record<string, string> = {};
-    for (const doc of documents) {
-      extractionProgress[doc.id] = doc.extractionStatus;
-    }
+    const totalDocs = documents.length;
+    const completedDocs = documents.filter(
+      (d: any) => d.extractionStatus === 'Completed' || d.extractionStatus === 'Failed',
+    ).length;
+    const processingDoc = documents.find((d: any) => d.extractionStatus === 'Processing');
+    const pendingDoc = documents.find((d: any) => d.extractionStatus === 'Pending');
+
+    let currentStep = 'מחכה למסמכים';
+    if (processingDoc) currentStep = `מחלץ נתונים מ-${processingDoc.documentType || 'מסמך'}...`;
+    else if (pendingDoc) currentStep = 'ממתין לחילוץ...';
+    else if (completedDocs === totalDocs && totalDocs > 0) currentStep = 'חילוץ הושלם';
+
+    const percentage = totalDocs > 0 ? Math.round((completedDocs / totalDocs) * 100) : 0;
 
     res.json({
       project_id: project.id,
@@ -34,7 +43,9 @@ export async function getExtractionStatus(req: Request, res: Response, next: Nex
         extraction_error: d.extractionError,
       })),
       tabu_data: project.tabuData,
-      extraction_progress: extractionProgress,
+      extraction_progress: totalDocs > 0
+        ? { total_docs: totalDocs, completed_docs: completedDocs, current_step: currentStep, percentage }
+        : null,
       active_simulation_id: activeSimulationId,
       active_simulation_status: activeSimulationStatus,
     });

@@ -8,6 +8,7 @@ import fs from 'fs';
 import { env } from './config/env';
 import { notFound, errorHandler } from './middlewares';
 import { apiRouter } from './api/routes';
+import { snakeCaseResponse } from './utils/serialize';
 
 const app = express();
 
@@ -38,6 +39,16 @@ app.use(morgan('dev'));
 
 // JSON body parser
 app.use(express.json({ limit: '50mb' }));
+
+// Serialize all JSON API responses to snake_case so the frontend
+// receives consistent field names regardless of Prisma's camelCase output.
+app.use('/api', (req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = function (body: unknown) {
+    return originalJson(snakeCaseResponse(body));
+  };
+  next();
+});
 
 // API routes
 app.use('/api', apiRouter);
