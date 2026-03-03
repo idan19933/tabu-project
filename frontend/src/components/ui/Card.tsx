@@ -10,8 +10,9 @@ export default function Card({ children, hover, className, ...props }: Props) {
   return (
     <div
       className={clsx(
-        'bg-white rounded-xl border border-slate-200 p-5',
-        hover && 'hover:shadow-md hover:border-primary-300 transition-all cursor-pointer',
+        'relative bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 p-5 shadow-sm',
+        hover &&
+          'hover:shadow-lg hover:shadow-primary-500/5 hover:border-primary-300/60 transition-all duration-300 cursor-pointer',
         className,
       )}
       {...props}

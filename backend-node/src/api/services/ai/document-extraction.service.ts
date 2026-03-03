@@ -10,6 +10,7 @@ import { extractedParametersSchema, extractedTabuDataSchema } from '../../schema
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import * as documentDA from '../../data-access/document.data-access';
 import * as projectDA from '../../data-access/project.data-access';
+import * as paramDA from '../../data-access/parameter.data-access';
 
 const TABU_SYSTEM_PROMPT = `You are an expert at extracting data from Israeli Tabu (נסח טאבו) land registry documents.
 Extract all relevant property information including: block (גוש), parcel (חלקה), sub-parcel (תת-חלקה),
@@ -101,6 +102,68 @@ async function detectDocType(text: string): Promise<string> {
   return ['tabu', 'planning', 'economic', 'general'].includes(docType) ? docType : 'general';
 }
 
+/** Apply AI-extracted parameters to the simulation's parameter tables. */
+async function applyExtractedToSimulation(simulationId: string, extracted: any) {
+  try {
+    if (extracted.planning) {
+      const p = extracted.planning;
+      const data: Record<string, number> = {};
+      if (p.returns_percent != null) data.returnsPercent = p.returns_percent;
+      if (p.multiplier_far != null) data.multiplierFar = p.multiplier_far;
+      if (p.avg_apt_size_sqm != null) data.avgAptSizeSqm = p.avg_apt_size_sqm;
+      if (p.number_of_floors != null) data.numberOfFloors = p.number_of_floors;
+      if (p.coverage_above_ground != null) data.coverageAboveGround = p.coverage_above_ground;
+      if (p.coverage_underground != null) data.coverageUnderground = p.coverage_underground;
+      if (p.gross_area_per_parking != null) data.grossAreaPerParking = p.gross_area_per_parking;
+      if (p.parking_standard_ratio != null) data.parkingStandardRatio = p.parking_standard_ratio;
+      if (p.service_area_percent != null) data.serviceAreaPercent = p.service_area_percent;
+      if (p.balcony_area_per_unit != null) data.balconyAreaPerUnit = p.balcony_area_per_unit;
+      if (p.blue_line_area != null) data.blueLineArea = p.blue_line_area;
+      if (p.public_area_sqm != null) data.publicAreaSqm = p.public_area_sqm;
+      if (Object.keys(data).length > 0) await paramDA.upsertPlanning(simulationId, data);
+    }
+
+    if (extracted.cost) {
+      const c = extracted.cost;
+      const data: Record<string, number> = {};
+      if (c.cost_per_sqm_residential != null) data.costPerSqmResidential = c.cost_per_sqm_residential;
+      if (c.cost_per_sqm_service != null) data.costPerSqmService = c.cost_per_sqm_service;
+      if (c.cost_per_sqm_commercial != null) data.costPerSqmCommercial = c.cost_per_sqm_commercial;
+      if (c.cost_per_sqm_balcony != null) data.costPerSqmBalcony = c.cost_per_sqm_balcony;
+      if (c.cost_per_sqm_development != null) data.costPerSqmDevelopment = c.cost_per_sqm_development;
+      if (c.construction_duration_months != null) data.constructionDurationMonths = c.construction_duration_months;
+      if (c.betterment_levy != null) data.bettermentLevy = c.betterment_levy;
+      if (c.purchase_tax != null) data.purchaseTax = c.purchase_tax;
+      if (c.financing_interest_rate != null) data.financingInterestRate = c.financing_interest_rate;
+      if (c.vat_rate != null) data.vatRate = c.vat_rate;
+      if (Object.keys(data).length > 0) await paramDA.upsertCost(simulationId, data);
+    }
+
+    if (extracted.revenue) {
+      const r = extracted.revenue;
+      const data: Record<string, number> = {};
+      if (r.price_per_sqm_residential != null) data.pricePerSqmResidential = r.price_per_sqm_residential;
+      if (r.price_per_sqm_commercial != null) data.pricePerSqmCommercial = r.price_per_sqm_commercial;
+      if (Object.keys(data).length > 0) await paramDA.upsertRevenue(simulationId, data);
+    }
+
+    if (extracted.apartment_mix && Array.isArray(extracted.apartment_mix) && extracted.apartment_mix.length > 0) {
+      await paramDA.replaceApartmentMix(
+        simulationId,
+        extracted.apartment_mix.map((m: any) => ({
+          apartmentType: m.apartment_type,
+          quantity: m.quantity,
+          percentageOfMix: m.percentage_of_mix,
+        })),
+      );
+    }
+
+    logger.info(`Applied extracted params to simulation ${simulationId}`);
+  } catch (err) {
+    logger.error(`Failed to apply extracted params to simulation ${simulationId}`, err);
+  }
+}
+
 export async function runDocumentExtraction(
   docId: string,
   projectId: string,
@@ -147,6 +210,11 @@ export async function runDocumentExtraction(
     } else {
       const params = await extractParameters(text);
       extractedData = params;
+
+      // Apply extracted parameters to the simulation's parameter tables
+      if (doc.simulationId) {
+        await applyExtractedToSimulation(doc.simulationId, params);
+      }
     }
 
     await documentDA.updateExtraction(docId, {

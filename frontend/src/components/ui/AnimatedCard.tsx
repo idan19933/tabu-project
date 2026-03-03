@@ -13,13 +13,20 @@ interface Props {
 export default function AnimatedCard({ children, hover, index = 0, className, onClick }: Props) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: index * 0.05, ease: 'easeOut' }}
-      whileHover={hover ? { y: -2, boxShadow: '0 8px 25px rgba(0,0,0,0.08)' } : undefined}
+      transition={{ duration: 0.4, delay: index * 0.06, ease: [0.16, 1, 0.3, 1] }}
+      whileHover={
+        hover
+          ? {
+              y: -4,
+              boxShadow: '0 20px 40px rgba(79, 70, 229, 0.08), 0 8px 16px rgba(0, 0, 0, 0.04)',
+            }
+          : undefined
+      }
       className={clsx(
-        'bg-white rounded-xl border border-slate-200 p-4',
-        hover && 'cursor-pointer transition-colors',
+        'relative bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 p-5 shadow-sm',
+        hover && 'cursor-pointer transition-colors duration-300',
         className,
       )}
       onClick={onClick}
