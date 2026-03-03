@@ -51,12 +51,30 @@ function TabuSection({
   );
 }
 
+function normalizeOwners(raw: unknown[]): TabuOwner[] {
+  return raw.map((item) =>
+    typeof item === 'string' ? { name: item } : (item as TabuOwner),
+  );
+}
+
+function normalizeLiens(raw: unknown[]): TabuLien[] {
+  return raw.map((item) =>
+    typeof item === 'string' ? { type: item } : (item as TabuLien),
+  );
+}
+
+function normalizeMortgages(raw: unknown[]): TabuMortgage[] {
+  return raw.map((item) =>
+    typeof item === 'string' ? { creditor: item } : (item as TabuMortgage),
+  );
+}
+
 function TabuPreview({ data }: { data: Record<string, unknown> }) {
   const tabu = data as TabuData;
-  const owners = (tabu.owners ?? []) as TabuOwner[];
-  const rightsHolders = (tabu.rights ?? tabu.rights_holders ?? []) as TabuOwner[];
-  const liens = (tabu.liens ?? []) as TabuLien[];
-  const mortgages = (tabu.mortgages ?? []) as TabuMortgage[];
+  const owners = normalizeOwners((tabu.owners ?? []) as unknown[]);
+  const rightsHolders = normalizeOwners(((tabu.rights ?? tabu.rights_holders ?? []) as unknown[]));
+  const liens = normalizeLiens((tabu.liens ?? []) as unknown[]);
+  const mortgages = normalizeMortgages((tabu.mortgages ?? []) as unknown[]);
   const warnings = (tabu.warnings ?? []) as (string | { type: string; details: string; date?: string })[];
 
   return (
