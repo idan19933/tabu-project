@@ -145,9 +145,9 @@ export const previewResearch = (projectId: string, simulationId: string) =>
   request<ResearchPreviewResponse>(
     `/projects/${projectId}/research/preview/${simulationId}`,
   );
-export const applyResearch = (projectId: string, simulationId: string, overrides?: Record<string, number>) =>
+export const applyResearch = (projectId: string, simulationId: string, overrides?: Record<string, number>, overwrite?: boolean) =>
   request<ApplyResearchResponse>(
-    `/projects/${projectId}/simulations/${simulationId}/apply-research`,
+    `/projects/${projectId}/simulations/${simulationId}/apply-research${overwrite ? '?overwrite=true' : ''}`,
     {
       method: 'POST',
       body: JSON.stringify(overrides ?? {}),

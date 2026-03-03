@@ -303,7 +303,8 @@ def preview_research(
             label_he = label_info[1]
 
             is_locked = field_name in LOCKED_TABU_FIELDS
-            will_change = (not is_locked) and (current_val is None or current_val == 0)
+            will_fill = (not is_locked) and (current_val is None or current_val == 0)
+            differs = (not is_locked) and (current_val != proposed_val)
             is_pct = field_name.endswith("_pct") and field_name != "cpi_linkage_pct"
 
             fields.append({
@@ -312,7 +313,8 @@ def preview_research(
                 "label_he": label_he,
                 "current": current_val,
                 "proposed": proposed_val,
-                "will_change": will_change,
+                "will_change": will_fill,  # backward compat: True if currently empty
+                "differs": differs,  # True if proposed != current
                 "is_pct": is_pct,
                 "is_locked": is_locked,
             })
@@ -328,6 +330,7 @@ def preview_research(
     # Summary
     total_fields = len(fields)
     will_change_count = sum(1 for f in fields if f["will_change"])
+    differs_count = sum(1 for f in fields if f.get("differs"))
 
     # Collect validation fixes and confidence from metadata
     research_summary = research.get("research_summary", {}) or {}
@@ -341,6 +344,7 @@ def preview_research(
         "summary": {
             "total_fields": total_fields,
             "will_change": will_change_count,
+            "differs": differs_count,
             "will_keep": total_fields - will_change_count,
             "locked_count": sum(1 for f in fields if f.get("is_locked")),
         },
@@ -356,12 +360,14 @@ def preview_research(
 def apply_research_to_simulation(
     project_id: UUID,
     simulation_id: UUID,
+    overwrite: bool = False,
     overrides: dict = Body(default={}),
     db: Session = Depends(get_db),
 ):
     """Apply market research defaults to a specific simulation.
 
-    Uses MERGE strategy: only fills fields that are currently null/0.
+    By default uses MERGE strategy: only fills fields that are currently null/0.
+    Pass ?overwrite=true to replace ALL values (not just empty ones).
     Accepts optional overrides dict to override specific research values.
     """
     project = db.query(Project).filter(Project.id == project_id).first()
@@ -412,7 +418,7 @@ def apply_research_to_simulation(
 
     counts = {"planning": 0, "costs": 0, "revenue": 0, "mix": 0}
 
-    # --- Apply planning parameters (merge) ---
+    # --- Apply planning parameters (merge or overwrite) ---
     if planning_data:
         existing = db.query(PlanningParameter).filter(
             PlanningParameter.simulation_id == sim.id
@@ -422,7 +428,7 @@ def apply_research_to_simulation(
             for k, v in planning_data.items():
                 if v is not None and hasattr(existing, k):
                     current = getattr(existing, k, None)
-                    if current is None or current == 0 or current == 0.0:
+                    if overwrite or current is None or current == 0 or current == 0.0:
                         setattr(existing, k, v)
                         counts["planning"] += 1
         else:
@@ -441,7 +447,7 @@ def apply_research_to_simulation(
             defaults["ai_extraction_metadata"] = {"source": "market_research_agent"}
             db.add(PlanningParameter(simulation_id=sim.id, **defaults))
 
-    # --- Apply cost parameters (merge) ---
+    # --- Apply cost parameters (merge or overwrite) ---
     if cost_data:
         existing = db.query(CostParameter).filter(
             CostParameter.simulation_id == sim.id
@@ -451,7 +457,7 @@ def apply_research_to_simulation(
             for k, v in cost_data.items():
                 if v is not None and hasattr(existing, k):
                     current = getattr(existing, k, None)
-                    if current is None or current == 0 or current == 0.0:
+                    if overwrite or current is None or current == 0 or current == 0.0:
                         setattr(existing, k, v)
                         counts["costs"] += 1
         else:
@@ -463,7 +469,7 @@ def apply_research_to_simulation(
             clean["ai_extraction_metadata"] = {"source": "market_research_agent"}
             db.add(CostParameter(simulation_id=sim.id, **clean))
 
-    # --- Apply revenue parameters (merge) ---
+    # --- Apply revenue parameters (merge or overwrite) ---
     if revenue_data:
         existing = db.query(RevenueParameter).filter(
             RevenueParameter.simulation_id == sim.id
@@ -474,12 +480,12 @@ def apply_research_to_simulation(
                 if v is not None and hasattr(existing, k):
                     if k == "price_per_unit_by_type":
                         current = getattr(existing, k, None)
-                        if not current or current == {}:
+                        if overwrite or not current or current == {}:
                             setattr(existing, k, v)
                             counts["revenue"] += 1
                     else:
                         current = getattr(existing, k, None)
-                        if current is None or current == 0 or current == 0.0:
+                        if overwrite or current is None or current == 0 or current == 0.0:
                             setattr(existing, k, v)
                             counts["revenue"] += 1
         else:
@@ -491,11 +497,18 @@ def apply_research_to_simulation(
             clean["ai_extraction_metadata"] = {"source": "market_research_agent"}
             db.add(RevenueParameter(simulation_id=sim.id, **clean))
 
-    # --- Apply apartment mix (only if empty) ---
+    # --- Apply apartment mix (only if empty, or overwrite) ---
     if mix_data:
         existing_count = db.query(ApartmentMix).filter(
             ApartmentMix.simulation_id == sim.id
         ).count()
+
+        if overwrite and existing_count > 0:
+            db.query(ApartmentMix).filter(
+                ApartmentMix.simulation_id == sim.id
+            ).delete()
+            existing_count = 0
+            logger.info(f"Overwrite mode: deleted {existing_count} existing mix items")
 
         if existing_count == 0:
             for item in mix_data:

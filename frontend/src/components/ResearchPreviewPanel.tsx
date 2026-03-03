@@ -14,6 +14,7 @@ import {
   Lock,
   ShieldCheck,
   Info,
+  RefreshCw,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { previewResearch, applyResearch } from '../api';
@@ -62,6 +63,7 @@ export default function ResearchPreviewPanel({
   const [preview, setPreview] = useState<ResearchPreviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
+  const [overwriteMode, setOverwriteMode] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, number>>({});
   const [editingField, setEditingField] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
@@ -81,7 +83,7 @@ export default function ResearchPreviewPanel({
   const handleApply = async () => {
     setApplying(true);
     try {
-      const result = await applyResearch(projectId, simulationId, overrides);
+      const result = await applyResearch(projectId, simulationId, overrides, overwriteMode);
       const total =
         result.fields_populated.planning +
         result.fields_populated.costs +
@@ -111,6 +113,13 @@ export default function ResearchPreviewPanel({
     return overrides[f.field] ?? f.proposed;
   };
 
+  // In overwrite mode, a field "will change" if it differs from current
+  const willApply = (f: ResearchPreviewField): boolean => {
+    if (f.is_locked) return false;
+    if (overwriteMode) return f.differs;
+    return f.will_change;
+  };
+
   if (loading) {
     return (
       <Card>
@@ -123,6 +132,10 @@ export default function ResearchPreviewPanel({
   }
 
   if (!preview) return null;
+
+  const applyCount = overwriteMode
+    ? (preview.summary.differs ?? 0)
+    : preview.summary.will_change;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -157,12 +170,14 @@ export default function ResearchPreviewPanel({
           </div>
           <div className="flex-1 bg-emerald-50 rounded-lg px-3 py-2 text-center">
             <p className="text-lg font-bold text-emerald-700">{preview.summary.will_change}</p>
-            <p className="text-xs text-emerald-500">ימולאו</p>
+            <p className="text-xs text-emerald-500">ריקים ימולאו</p>
           </div>
-          <div className="flex-1 bg-slate-50 rounded-lg px-3 py-2 text-center">
-            <p className="text-lg font-bold text-slate-600">{preview.summary.will_keep}</p>
-            <p className="text-xs text-slate-400">לא ישתנו (כבר מלאים)</p>
-          </div>
+          {(preview.summary.differs ?? 0) > preview.summary.will_change && (
+            <div className="flex-1 bg-orange-50 rounded-lg px-3 py-2 text-center">
+              <p className="text-lg font-bold text-orange-700">{preview.summary.differs}</p>
+              <p className="text-xs text-orange-500">שונים מהנוכחי</p>
+            </div>
+          )}
           {preview.summary.locked_count > 0 && (
             <div className="flex-1 bg-amber-50 rounded-lg px-3 py-2 text-center">
               <p className="text-lg font-bold text-amber-700">{preview.summary.locked_count}</p>
@@ -170,6 +185,26 @@ export default function ResearchPreviewPanel({
             </div>
           )}
         </div>
+
+        {/* Overwrite mode toggle — show when there are differing fields that won't be filled */}
+        {(preview.summary.differs ?? 0) > preview.summary.will_change && (
+          <div className="flex items-center gap-2 mb-4 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+            <RefreshCw size={14} className="text-orange-500 shrink-0" />
+            <span className="text-xs text-orange-700 flex-1">
+              {preview.summary.differs! - preview.summary.will_change} שדות כבר מלאים עם ערכים שונים.
+            </span>
+            <button
+              onClick={() => setOverwriteMode(!overwriteMode)}
+              className={`text-xs font-medium px-2.5 py-1 rounded transition-colors ${
+                overwriteMode
+                  ? 'bg-orange-600 text-white'
+                  : 'bg-white border border-orange-300 text-orange-700 hover:bg-orange-100'
+              }`}
+            >
+              {overwriteMode ? 'מצב דריסה פעיל' : 'דרוס ערכים קיימים'}
+            </button>
+          </div>
+        )}
 
         {/* Confidence indicators */}
         {preview.confidence && Object.keys(preview.confidence).length > 0 && (
@@ -224,7 +259,7 @@ export default function ResearchPreviewPanel({
             const fields = preview.grouped[section];
             if (!fields || fields.length === 0) return null;
             const isExpanded = expandedSections[section];
-            const changeCount = fields.filter((f) => f.will_change).length;
+            const sectionApplyCount = fields.filter(willApply).length;
 
             return (
               <div key={section} className="border border-slate-200 rounded-lg overflow-hidden">
@@ -235,7 +270,7 @@ export default function ResearchPreviewPanel({
                   <span className="text-sm font-medium text-slate-700">
                     {section}
                     <span className="text-xs text-slate-400 mr-2">
-                      ({changeCount}/{fields.length} ימולאו)
+                      ({sectionApplyCount}/{fields.length} {overwriteMode ? 'ישתנו' : 'ימולאו'})
                     </span>
                   </span>
                   {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -253,6 +288,7 @@ export default function ResearchPreviewPanel({
                           const proposedVal = getProposedValue(f);
                           const isEditing = editingField === f.field && !f.is_locked;
                           const hasOverride = f.field in overrides;
+                          const fieldWillApply = willApply(f);
 
                           return (
                             <div
@@ -260,19 +296,23 @@ export default function ResearchPreviewPanel({
                               className={`flex items-center gap-2 px-3 py-2 text-xs ${
                                 f.is_locked
                                   ? 'bg-amber-50/50'
-                                  : f.will_change
+                                  : fieldWillApply
                                     ? 'bg-emerald-50/50'
-                                    : 'bg-white opacity-60'
+                                    : f.differs && !overwriteMode
+                                      ? 'bg-orange-50/30'
+                                      : 'bg-white opacity-60'
                               }`}
                             >
                               {/* Status icon */}
                               <div className="w-4 shrink-0">
                                 {f.is_locked ? (
                                   <Lock size={12} className="text-amber-500" />
-                                ) : f.will_change ? (
+                                ) : fieldWillApply ? (
                                   <CheckCircle2 size={12} className="text-emerald-500" />
+                                ) : f.differs ? (
+                                  <AlertTriangle size={12} className="text-orange-400" />
                                 ) : (
-                                  <AlertTriangle size={12} className="text-slate-300" />
+                                  <CheckCircle2 size={12} className="text-slate-300" />
                                 )}
                               </div>
 
@@ -290,7 +330,9 @@ export default function ResearchPreviewPanel({
                               </span>
 
                               {/* Arrow */}
-                              <span className="text-slate-300 px-1">{f.is_locked ? '=' : '→'}</span>
+                              <span className={`px-1 ${f.differs ? 'text-orange-400' : 'text-slate-300'}`}>
+                                {f.is_locked ? '=' : f.differs ? '→' : '='}
+                              </span>
 
                               {/* Proposed (editable — except locked) */}
                               {f.is_locked ? (
@@ -319,7 +361,7 @@ export default function ResearchPreviewPanel({
                                 <button
                                   onClick={() => setEditingField(f.field)}
                                   className={`w-20 text-left font-semibold flex items-center gap-1 hover:text-blue-600 ${
-                                    hasOverride ? 'text-blue-700' : f.will_change ? 'text-emerald-700' : 'text-slate-500'
+                                    hasOverride ? 'text-blue-700' : fieldWillApply ? 'text-emerald-700' : f.differs ? 'text-orange-600' : 'text-slate-500'
                                   }`}
                                 >
                                   {formatValue(proposedVal, f.is_pct)}
@@ -336,6 +378,62 @@ export default function ResearchPreviewPanel({
               </div>
             );
           })}
+
+          {/* Also show "planning" section if it exists but wasn't in SECTION_ORDER */}
+          {Object.entries(preview.grouped)
+            .filter(([section]) => !SECTION_ORDER.includes(section))
+            .map(([section, fields]) => {
+              if (!fields || fields.length === 0) return null;
+              const isExpanded = expandedSections[section] ?? false;
+              const sectionApplyCount = fields.filter(willApply).length;
+
+              return (
+                <div key={section} className="border border-slate-200 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => toggleSection(section)}
+                    className="flex items-center justify-between w-full px-3 py-2.5 bg-slate-50 hover:bg-slate-100 transition-colors"
+                  >
+                    <span className="text-sm font-medium text-slate-700">
+                      {section}
+                      <span className="text-xs text-slate-400 mr-2">
+                        ({sectionApplyCount}/{fields.length} {overwriteMode ? 'ישתנו' : 'ימולאו'})
+                      </span>
+                    </span>
+                    {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                  {isExpanded && (
+                    <div className="divide-y divide-slate-100">
+                      {fields.map((f) => {
+                        const proposedVal = getProposedValue(f);
+                        const fieldWillApply = willApply(f);
+                        return (
+                          <div
+                            key={f.field}
+                            className={`flex items-center gap-2 px-3 py-2 text-xs ${
+                              fieldWillApply ? 'bg-emerald-50/50' : 'bg-white opacity-60'
+                            }`}
+                          >
+                            <div className="w-4 shrink-0">
+                              {fieldWillApply ? (
+                                <CheckCircle2 size={12} className="text-emerald-500" />
+                              ) : (
+                                <CheckCircle2 size={12} className="text-slate-300" />
+                              )}
+                            </div>
+                            <span className="flex-1 font-medium text-slate-700">{f.label_he}</span>
+                            <span className="w-20 text-left text-slate-400">{formatValue(f.current, f.is_pct)}</span>
+                            <span className="text-slate-300 px-1">{f.differs ? '→' : '='}</span>
+                            <span className={`w-20 text-left font-semibold ${fieldWillApply ? 'text-emerald-700' : 'text-slate-500'}`}>
+                              {formatValue(proposedVal, f.is_pct)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
         </div>
 
         {/* Apartment mix preview */}
@@ -343,6 +441,10 @@ export default function ResearchPreviewPanel({
           <div className="mt-3 border border-slate-200 rounded-lg overflow-hidden">
             <div className="px-3 py-2.5 bg-slate-50">
               <span className="text-sm font-medium text-slate-700">תמהיל דירות</span>
+              <span className="text-xs text-slate-400 mr-2">
+                ({preview.apartment_mix.length} סוגים,{' '}
+                {preview.apartment_mix.reduce((s, m) => s + m.quantity, 0)} יח׳)
+              </span>
             </div>
             <div className="divide-y divide-slate-100">
               {preview.apartment_mix.map((item, idx) => (
@@ -376,7 +478,7 @@ export default function ResearchPreviewPanel({
               ) : (
                 <>
                   <Sparkles size={14} />
-                  החל {preview.summary.will_change} שדות
+                  {overwriteMode ? `דרוס ${applyCount} שדות` : `החל ${applyCount} שדות`}
                 </>
               )}
             </Button>
