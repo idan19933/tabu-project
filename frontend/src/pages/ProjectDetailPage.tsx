@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, FileText, Plus, Users, Shield, AlertTriangle, Landmark, Building2, Copy, Upload, Brain, Lock, Search, Loader2, MapPin } from 'lucide-react';
+import { ChevronDown, ChevronUp, FileText, Plus, Users, Shield, AlertTriangle, Landmark, Building2, Copy, Upload, Brain, Search, Loader2, MapPin } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -33,44 +33,76 @@ function TabuSection({
     <Card>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full text-right cursor-pointer"
+        className="flex items-center justify-between w-full text-right cursor-pointer group"
       >
-        <div className="flex items-center gap-2">
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${color}`}>
+        <div className="flex items-center gap-3">
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${color} shadow-sm`}>
             <Icon size={16} className="text-white" />
           </div>
-          <h3 className="font-medium text-sm">{title}</h3>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+          <h3 className="font-semibold text-sm text-slate-800">{title}</h3>
+          <span className="text-xs px-2 py-0.5 rounded-lg bg-slate-100 text-slate-500 font-medium">
             {count}
           </span>
         </div>
-        {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        <motion.div animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }}>
+          <ChevronDown size={16} className="text-slate-400 group-hover:text-slate-600 transition-colors" />
+        </motion.div>
       </button>
-      {open && <div className="mt-3 border-t pt-3">{children}</div>}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="mt-3 border-t border-slate-100 pt-3">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </Card>
+  );
+}
+
+function normalizeOwners(raw: unknown[]): TabuOwner[] {
+  return raw.map((item) =>
+    typeof item === 'string' ? { name: item } : (item as TabuOwner),
+  );
+}
+
+function normalizeLiens(raw: unknown[]): TabuLien[] {
+  return raw.map((item) =>
+    typeof item === 'string' ? { type: item } : (item as TabuLien),
+  );
+}
+
+function normalizeMortgages(raw: unknown[]): TabuMortgage[] {
+  return raw.map((item) =>
+    typeof item === 'string' ? { creditor: item } : (item as TabuMortgage),
   );
 }
 
 function TabuPreview({ data }: { data: Record<string, unknown> }) {
   const tabu = data as TabuData;
-  const owners = (tabu.owners ?? []) as TabuOwner[];
-  const rightsHolders = (tabu.rights ?? tabu.rights_holders ?? []) as TabuOwner[];
-  const liens = (tabu.liens ?? []) as TabuLien[];
-  const mortgages = (tabu.mortgages ?? []) as TabuMortgage[];
+  const owners = normalizeOwners((tabu.owners ?? []) as unknown[]);
+  const rightsHolders = normalizeOwners(((tabu.rights ?? tabu.rights_holders ?? []) as unknown[]));
+  const liens = normalizeLiens((tabu.liens ?? []) as unknown[]);
+  const mortgages = normalizeMortgages((tabu.mortgages ?? []) as unknown[]);
   const warnings = (tabu.warnings ?? []) as (string | { type: string; details: string; date?: string })[];
 
   return (
-    <section className="mb-6">
-      <h2 className="text-lg font-semibold mb-3">נתוני טאבו</h2>
+    <section className="mb-8">
+      <h2 className="text-lg font-bold text-slate-900 mb-4" style={{ fontFamily: 'Rubik, Heebo, sans-serif' }}>נתוני טאבו</h2>
 
       <Card>
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-emerald-600">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-br from-emerald-500 to-emerald-600 shadow-sm shadow-emerald-500/20">
             <Building2 size={16} className="text-white" />
           </div>
-          <h3 className="font-medium">פרטי נכס</h3>
+          <h3 className="font-bold text-slate-800">פרטי נכס</h3>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
           {tabu.block && (
             <div>
               <span className="text-slate-500 text-xs">גוש</span>
@@ -223,7 +255,19 @@ export default function ProjectDetailPage() {
       (d.extraction_status === 'Processing' || d.extraction_status === 'Pending'),
   ) ?? false;
 
+  // Does a tabu document exist at all (regardless of extraction result)?
+  const hasTabuDoc = project?.documents.some((d) => d.document_type === 'tabu') ?? false;
+  // Does the project have AI-extracted tabu data?
   const hasTabuData = !!project?.tabu_data;
+  // Did the tabu doc complete extraction but yield no data (mis-classified or error)?
+  const tabuDocCompletedEmpty =
+    hasTabuDoc &&
+    !hasTabuData &&
+    !isTabuExtracting &&
+    (project?.documents.some(
+      (d) => d.document_type === 'tabu' && d.extraction_status === 'Completed',
+    ) ?? false);
+
   const researchStatus = project?.market_research_status;
   const researchData = project?.market_research_data;
   const isResearchRunning = researchStatus === 'running';
@@ -325,22 +369,22 @@ export default function ProjectDetailPage() {
 
   return (
     <AnimatedPage>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold">{project.name}</h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <h1 className="text-2xl font-extrabold text-slate-900" style={{ fontFamily: 'Rubik, Heebo, sans-serif' }}>
+            {project.name}
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
             נוצר {new Date(project.created_at).toLocaleDateString('he-IL')}
           </p>
         </div>
-        {hasTabuData && (
-          <Button onClick={() => setShowNewSim(true)}>
-            <Plus size={16} />
-            סימולציה חדשה
-          </Button>
-        )}
+        <Button onClick={() => setShowNewSim(true)}>
+          <Plus size={16} />
+          סימולציה חדשה
+        </Button>
       </div>
 
-      {/* Tabu Data — Upload Gate or Preview */}
+      {/* Tabu Data — Upload zone / extracting / completed-empty / preview */}
       {hasTabuData ? (
         <TabuPreview data={project.tabu_data!} />
       ) : isTabuExtracting ? (
@@ -380,12 +424,45 @@ export default function ProjectDetailPage() {
             </div>
           </Card>
         </section>
+      ) : tabuDocCompletedEmpty ? (
+        /* Tabu doc uploaded but extraction produced no data — allow manual flow */
+        <section className="mb-6">
+          <Card>
+            <div className="flex items-center gap-3 py-2">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-amber-500 shrink-0">
+                <AlertTriangle size={20} className="text-white" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-amber-800">
+                  נסח טאבו הועלה — חילוץ AI לא הצליח לייצר נתונים
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  ניתן ליצור סימולציה ולהזין פרמטרים ידנית, או להעלות קובץ חדש
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = '.pdf';
+                  input.onchange = () => handleTabuUpload(input.files);
+                  input.click();
+                }}
+              >
+                <Upload size={14} />
+                העלה שוב
+              </Button>
+            </div>
+          </Card>
+        </section>
       ) : (
-        /* No tabu — Upload zone */
+        /* No tabu doc at all — show upload zone (optional, not blocking) */
         <section className="mb-6">
           <Card>
             <div
-              className="border-2 border-dashed border-purple-300 rounded-lg p-10 text-center hover:border-purple-500 hover:bg-purple-50/50 transition-all cursor-pointer"
+              className="border-2 border-dashed border-primary-200 rounded-2xl p-10 text-center hover:border-primary-400 hover:bg-primary-50/30 transition-all duration-300 cursor-pointer"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
@@ -406,9 +483,11 @@ export default function ProjectDetailPage() {
                 </div>
               ) : (
                 <>
-                  <Upload size={40} className="mx-auto text-purple-400 mb-3" />
-                  <p className="text-base font-semibold text-slate-700 mb-1">
-                    העלה נסח טאבו (PDF)
+                  <div className="w-16 h-16 rounded-2xl bg-primary-50 mx-auto mb-4 flex items-center justify-center">
+                    <Upload size={28} className="text-primary-400" />
+                  </div>
+                  <p className="text-base font-bold text-slate-800 mb-1">
+                    העלה נסח טאבו (PDF) — אופציונלי
                   </p>
                   <p className="text-sm text-slate-500">
                     גרור קובץ לכאן או לחץ להעלאה
@@ -420,11 +499,9 @@ export default function ProjectDetailPage() {
               )}
             </div>
           </Card>
-          {/* Lock message */}
           <div className="flex items-center gap-2 mt-3 px-1">
-            <Lock size={14} className="text-slate-400" />
             <p className="text-sm text-slate-400">
-              יש להעלות נסח טאבו לפני יצירת סימולציה
+              ניתן גם ליצור סימולציה ולהזין את הפרמטרים ידנית ללא נסח טאבו
             </p>
           </div>
         </section>
@@ -519,8 +596,10 @@ export default function ProjectDetailPage() {
       {/* Documents (read-only list) */}
       {project.documents.length > 0 && (
         <section className="mb-8">
-          <h2 className="text-lg font-semibold mb-3">מסמכים ({project.documents.length})</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <h2 className="text-lg font-bold text-slate-900 mb-4" style={{ fontFamily: 'Rubik, Heebo, sans-serif' }}>
+            מסמכים ({project.documents.length})
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {project.documents.map((doc) => (
               <Card key={doc.id}>
                 <div className="flex items-center gap-3">
@@ -532,14 +611,14 @@ export default function ProjectDetailPage() {
                     </p>
                   </div>
                   <span
-                    className={`text-xs px-2 py-0.5 rounded-full ${
+                    className={`text-xs px-2.5 py-1 rounded-lg font-medium ring-1 ring-inset ${
                       doc.extraction_status === 'Completed'
-                        ? 'bg-emerald-100 text-emerald-700'
+                        ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
                         : doc.extraction_status === 'Processing'
-                          ? 'bg-purple-100 text-purple-700'
+                          ? 'bg-violet-50 text-violet-700 ring-violet-200'
                           : doc.extraction_status === 'Failed'
-                            ? 'bg-red-100 text-red-700'
-                            : 'bg-slate-100 text-slate-500'
+                            ? 'bg-red-50 text-red-700 ring-red-200'
+                            : 'bg-slate-50 text-slate-500 ring-slate-200'
                     }`}
                   >
                     {doc.extraction_status === 'Completed'
@@ -557,54 +636,52 @@ export default function ProjectDetailPage() {
         </section>
       )}
 
-      {/* Simulations — only visible when tabu exists */}
-      {hasTabuData && (
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold">סימולציות</h2>
-          </div>
-          {!project.simulations.length ? (
-            <Card>
-              <div className="flex flex-col items-center gap-3 py-6 text-center">
-                <p className="text-sm text-slate-400">אין סימולציות עדיין</p>
-                <Button size="sm" onClick={() => setShowNewSim(true)}>
-                  <Plus size={14} /> צור סימולציה ראשונה
-                </Button>
-              </div>
-            </Card>
-          ) : (
-            <div className="space-y-2">
-              {project.simulations.map((sim) => (
-                <Card key={sim.id} hover>
-                  <div className="flex items-center justify-between">
-                    <div
-                      className="flex-1 cursor-pointer"
-                      onClick={() => simClick(sim.id, sim.status)}
-                    >
-                      <h3 className="font-medium">{sim.version_name}</h3>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        {new Date(sim.created_at).toLocaleDateString('he-IL')}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge status={sim.status} />
-                      {(sim.status === 'Completed' || sim.status === 'Approved_For_Calc') && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleCloneSim(sim.id); }}
-                          className="p-1.5 text-slate-400 hover:text-primary-600 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
-                          title="שכפל סימולציה"
-                        >
-                          <Copy size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </Card>
-              ))}
+      {/* Simulations — always visible */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-slate-900" style={{ fontFamily: 'Rubik, Heebo, sans-serif' }}>סימולציות</h2>
+        </div>
+        {!project.simulations.length ? (
+          <Card>
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <p className="text-sm text-slate-400">אין סימולציות עדיין</p>
+              <Button size="sm" onClick={() => setShowNewSim(true)}>
+                <Plus size={14} /> צור סימולציה ראשונה
+              </Button>
             </div>
-          )}
-        </section>
-      )}
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {project.simulations.map((sim) => (
+              <Card key={sim.id} hover>
+                <div className="flex items-center justify-between">
+                  <div
+                    className="flex-1 cursor-pointer"
+                    onClick={() => simClick(sim.id, sim.status)}
+                  >
+                    <h3 className="font-semibold text-slate-800">{sim.version_name}</h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {new Date(sim.created_at).toLocaleDateString('he-IL')}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge status={sim.status} />
+                    {(sim.status === 'Completed' || sim.status === 'Approved_For_Calc') && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleCloneSim(sim.id); }}
+                        className="p-1.5 text-slate-400 hover:text-primary-600 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+                        title="שכפל סימולציה"
+                      >
+                        <Copy size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </section>
 
       <Modal open={showNewSim} onClose={() => setShowNewSim(false)} title="סימולציה חדשה">
         <div className="space-y-4">

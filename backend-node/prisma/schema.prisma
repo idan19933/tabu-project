@@ -1,0 +1,277 @@
+generator client {
+  provider = "prisma-client"
+  output   = "./generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum SimulationStatus {
+  Draft
+  AI_Extracting
+  Pending_Review
+  Approved_For_Calc
+  Completed
+}
+
+enum ExtractionStatus {
+  Pending
+  Processing
+  Completed
+  Failed
+}
+
+model Project {
+  id                   String   @id @default(uuid()) @db.Uuid
+  name                 String
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  tabuData             Json?    @map("tabu_data")
+  marketResearchData   Json?    @map("market_research_data")
+  marketResearchStatus String?  @map("market_research_status") @db.VarChar(20)
+
+  documents   Document[]
+  simulations Simulation[]
+
+  @@map("projects")
+}
+
+model Simulation {
+  id                 String           @id @default(uuid()) @db.Uuid
+  projectId          String           @map("project_id") @db.Uuid
+  versionName        String           @map("version_name")
+  status             SimulationStatus @default(Draft)
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  extractionProgress Json?            @map("extraction_progress")
+  agentStatus        Json?            @map("agent_status")
+
+  project            Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  documents          Document[]
+  planningParameters PlanningParameter?
+  apartmentMix       ApartmentMix[]
+  economicParameters EconomicParameter?
+  costParameters     CostParameter?
+  revenueParameters  RevenueParameter?
+  simulationResults  SimulationResult?
+
+  @@map("simulations")
+}
+
+model Document {
+  id               String           @id @default(uuid()) @db.Uuid
+  projectId        String           @map("project_id") @db.Uuid
+  simulationId     String?          @map("simulation_id") @db.Uuid
+  documentType     String           @map("document_type")
+  docType          String?          @map("doc_type") @db.VarChar(50)
+  filePath         String           @map("file_path")
+  uploadDate       DateTime         @default(now()) @map("upload_date") @db.Timestamptz
+  extractionStatus ExtractionStatus @default(Pending) @map("extraction_status")
+  extractionError  String?          @map("extraction_error")
+  extractedData    Json?            @map("extracted_data")
+
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  simulation Simulation? @relation(fields: [simulationId], references: [id], onDelete: SetNull)
+
+  @@map("documents")
+}
+
+model PlanningParameter {
+  simulationId         String   @id @map("simulation_id") @db.Uuid
+  returnsPercent       Decimal? @map("returns_percent") @db.Decimal(5, 2)
+  multiplierFar        Decimal? @map("multiplier_far") @db.Decimal(5, 2)
+  avgAptSizeSqm        Decimal? @map("avg_apt_size_sqm") @db.Decimal(8, 2)
+  serviceAreaSqm       Decimal? @map("service_area_sqm") @db.Decimal(8, 2)
+  numberOfFloors       Int?     @map("number_of_floors")
+  coverageAboveGround  Decimal? @map("coverage_above_ground") @db.Decimal(5, 2)
+  coverageUnderground  Decimal? @map("coverage_underground") @db.Decimal(5, 2)
+  grossAreaPerParking  Decimal? @map("gross_area_per_parking") @db.Decimal(8, 2)
+  buildingLinesNotes   String?  @map("building_lines_notes")
+  publicTasksNotes     String?  @map("public_tasks_notes")
+  parkingStandardRatio Decimal? @map("parking_standard_ratio") @db.Decimal(5, 2)
+  typFloorAreaMin      Decimal? @map("typ_floor_area_min") @db.Decimal(8, 2)
+  typFloorAreaMax      Decimal? @map("typ_floor_area_max") @db.Decimal(8, 2)
+  aptsPerFloorMin      Int?     @map("apts_per_floor_min")
+  aptsPerFloorMax      Int?     @map("apts_per_floor_max")
+  returnAreaPerApt     Decimal? @map("return_area_per_apt") @db.Decimal(8, 2)
+  serviceAreaPercent   Decimal? @map("service_area_percent") @db.Decimal(5, 2)
+  publicAreaSqm        Decimal? @map("public_area_sqm") @db.Decimal(10, 2)
+  parkingFloorArea     Decimal? @map("parking_floor_area") @db.Decimal(10, 2)
+  balconyAreaPerUnit   Decimal? @map("balcony_area_per_unit") @db.Decimal(8, 2)
+  blueLineArea         Decimal? @map("blue_line_area") @db.Decimal(10, 2)
+  planningStage        String?  @map("planning_stage") @db.VarChar(50)
+  aiExtractionMetadata Json?    @map("ai_extraction_metadata")
+
+  simulation Simulation @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+
+  @@map("planning_parameters")
+}
+
+model CostParameter {
+  simulationId               String   @id @map("simulation_id") @db.Uuid
+  constructionDurationMonths Int?     @map("construction_duration_months")
+  costPerSqmResidential      Decimal? @map("cost_per_sqm_residential") @db.Decimal(12, 2)
+  costPerSqmService          Decimal? @map("cost_per_sqm_service") @db.Decimal(12, 2)
+  costPerSqmCommercial       Decimal? @map("cost_per_sqm_commercial") @db.Decimal(12, 2)
+  costPerSqmBalcony          Decimal? @map("cost_per_sqm_balcony") @db.Decimal(12, 2)
+  costPerSqmDevelopment      Decimal? @map("cost_per_sqm_development") @db.Decimal(12, 2)
+  bettermentLevy             Decimal? @map("betterment_levy") @db.Decimal(14, 2)
+  purchaseTax                Decimal? @map("purchase_tax") @db.Decimal(14, 2)
+  planningConsultants        Decimal? @map("planning_consultants") @db.Decimal(14, 2)
+  permitsFees                Decimal? @map("permits_fees") @db.Decimal(14, 2)
+  electricityConnection      Decimal? @map("electricity_connection") @db.Decimal(14, 2)
+  bankSupervision            Decimal? @map("bank_supervision") @db.Decimal(14, 2)
+  engineeringManagement      Decimal? @map("engineering_management") @db.Decimal(14, 2)
+  tenantSupervision          Decimal? @map("tenant_supervision") @db.Decimal(14, 2)
+  managementOverhead         Decimal? @map("management_overhead") @db.Decimal(14, 2)
+  marketingAdvertising       Decimal? @map("marketing_advertising") @db.Decimal(14, 2)
+  tenantLawyer               Decimal? @map("tenant_lawyer") @db.Decimal(14, 2)
+  initiationFee              Decimal? @map("initiation_fee") @db.Decimal(14, 2)
+  developerLawyer            Decimal? @map("developer_lawyer") @db.Decimal(14, 2)
+  rentSubsidy                Decimal? @map("rent_subsidy") @db.Decimal(14, 2)
+  evacuationCost             Decimal? @map("evacuation_cost") @db.Decimal(14, 2)
+  movingCost                 Decimal? @map("moving_cost") @db.Decimal(14, 2)
+  contingency                Decimal? @map("contingency") @db.Decimal(14, 2)
+  demolition                 Decimal? @map("demolition") @db.Decimal(14, 2)
+  constructionTotal          Decimal? @map("construction_total") @db.Decimal(14, 2)
+  parkingConstruction        Decimal? @map("parking_construction") @db.Decimal(14, 2)
+  financingInterestRate      Decimal? @map("financing_interest_rate") @db.Decimal(5, 2)
+  vatRate                    Decimal? @map("vat_rate") @db.Decimal(5, 2)
+  cpiLinkagePct              Decimal? @map("cpi_linkage_pct") @db.Decimal(5, 2)
+  planningConsultantsPct     Decimal? @map("planning_consultants_pct") @db.Decimal(5, 2)
+  permitsFeesPct             Decimal? @map("permits_fees_pct") @db.Decimal(5, 2)
+  bankSupervisionPct         Decimal? @map("bank_supervision_pct") @db.Decimal(5, 2)
+  engineeringManagementPct   Decimal? @map("engineering_management_pct") @db.Decimal(5, 2)
+  tenantSupervisionPct       Decimal? @map("tenant_supervision_pct") @db.Decimal(5, 2)
+  managementOverheadPct      Decimal? @map("management_overhead_pct") @db.Decimal(5, 2)
+  marketingAdvertisingPct    Decimal? @map("marketing_advertising_pct") @db.Decimal(5, 2)
+  tenantLawyerPct            Decimal? @map("tenant_lawyer_pct") @db.Decimal(5, 2)
+  developerLawyerPct         Decimal? @map("developer_lawyer_pct") @db.Decimal(5, 2)
+  contingencyPct             Decimal? @map("contingency_pct") @db.Decimal(5, 2)
+  initiationFeePct           Decimal? @map("initiation_fee_pct") @db.Decimal(5, 2)
+  dataSources                Json?    @map("data_sources")
+  aiExtractionMetadata       Json?    @map("ai_extraction_metadata")
+
+  simulation Simulation @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+
+  @@map("cost_parameters")
+}
+
+model RevenueParameter {
+  simulationId           String   @id @map("simulation_id") @db.Uuid
+  pricePerUnitByType     Json?    @map("price_per_unit_by_type")
+  pricePerSqmResidential Decimal? @map("price_per_sqm_residential") @db.Decimal(12, 2)
+  pricePerSqmCommercial  Decimal? @map("price_per_sqm_commercial") @db.Decimal(12, 2)
+  salesPacePerMonth      Decimal? @map("sales_pace_per_month") @db.Decimal(8, 2)
+  marketingDiscountPct   Decimal? @map("marketing_discount_pct") @db.Decimal(5, 2)
+  pricePerSqmParking     Decimal? @map("price_per_sqm_parking") @db.Decimal(12, 2)
+  pricePerSqmStorage     Decimal? @map("price_per_sqm_storage") @db.Decimal(12, 2)
+  aiExtractionMetadata   Json?    @map("ai_extraction_metadata")
+
+  simulation Simulation @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+
+  @@map("revenue_parameters")
+}
+
+model ApartmentMix {
+  id              String  @id @default(uuid()) @db.Uuid
+  simulationId    String  @map("simulation_id") @db.Uuid
+  apartmentType   String  @map("apartment_type")
+  quantity        Int
+  percentageOfMix Decimal @map("percentage_of_mix") @db.Decimal(5, 2)
+
+  simulation Simulation @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+
+  @@map("apartment_mix")
+}
+
+model EconomicParameter {
+  simulationId         String  @id @map("simulation_id") @db.Uuid
+  salesPricesByUse     Json    @map("sales_prices_by_use")
+  costConstructionDev  Decimal @map("cost_construction_dev") @db.Decimal(12, 2)
+  costPlanningMgmt     Decimal @map("cost_planning_mgmt") @db.Decimal(12, 2)
+  leviesFeesTaxes      Decimal @map("levies_fees_taxes") @db.Decimal(12, 2)
+  timelineMonths       Int     @map("timeline_months")
+  interestRate         Decimal @map("interest_rate") @db.Decimal(5, 2)
+  salesPacePerMonth    Decimal @map("sales_pace_per_month") @db.Decimal(8, 2)
+  marketingDiscountPct Decimal @map("marketing_discount_pct") @db.Decimal(5, 2)
+  aiExtractionMetadata Json?   @map("ai_extraction_metadata")
+
+  simulation Simulation @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+
+  @@map("economic_parameters")
+}
+
+model SimulationResult {
+  simulationId String @id @map("simulation_id") @db.Uuid
+
+  // Legacy KPIs
+  profit            Decimal? @db.Decimal(14, 2)
+  profitabilityRate Decimal? @map("profitability_rate") @db.Decimal(8, 4)
+  irr               Decimal? @db.Decimal(8, 4)
+  npv               Decimal? @db.Decimal(14, 2)
+
+  // Revenue & Costs
+  totalRevenue         Decimal? @map("total_revenue") @db.Decimal(14, 2)
+  netRevenue           Decimal? @map("net_revenue") @db.Decimal(14, 2)
+  totalCosts           Decimal? @map("total_costs") @db.Decimal(14, 2)
+  constructionCost     Decimal? @map("construction_cost") @db.Decimal(14, 2)
+  planningCost         Decimal? @map("planning_cost") @db.Decimal(14, 2)
+  leviesCost           Decimal? @map("levies_cost") @db.Decimal(14, 2)
+  totalUnits           Int?     @map("total_units")
+  totalResidentialArea Decimal? @map("total_residential_area") @db.Decimal(12, 2)
+  residentialRevenue   Decimal? @map("residential_revenue") @db.Decimal(14, 2)
+  commercialRevenue    Decimal? @map("commercial_revenue") @db.Decimal(14, 2)
+  monthlyCashFlows     Json?    @map("monthly_cash_flows")
+
+  // Proposed State (Section 2)
+  totalReturnFloorplate Decimal? @map("total_return_floorplate") @db.Decimal(12, 2)
+  totalNewUnits         Int?     @map("total_new_units")
+  totalFloorplate       Decimal? @map("total_floorplate") @db.Decimal(12, 2)
+  developerUnits        Int?     @map("developer_units")
+  developerFloorplate   Decimal? @map("developer_floorplate") @db.Decimal(12, 2)
+  avgDeveloperUnitSize  Decimal? @map("avg_developer_unit_size") @db.Decimal(8, 2)
+  combinationRatio      Decimal? @map("combination_ratio") @db.Decimal(8, 4)
+
+  // Building Program (Section 3)
+  serviceAreas                Decimal? @map("service_areas") @db.Decimal(12, 2)
+  totalAboveGround            Decimal? @map("total_above_ground") @db.Decimal(12, 2)
+  floorArea                   Decimal? @map("floor_area") @db.Decimal(12, 2)
+  maxBuildings                Int?     @map("max_buildings")
+  aboveGroundPerBuilding      Decimal? @map("above_ground_per_building") @db.Decimal(12, 2)
+  developmentLand             Decimal? @map("development_land") @db.Decimal(12, 2)
+  residentialPerBuilding      Decimal? @map("residential_per_building") @db.Decimal(12, 2)
+  returnUnitsPerBuilding      Int?     @map("return_units_per_building")
+  developerUnitsPerBuilding   Int?     @map("developer_units_per_building")
+  developerFloorplatePerBldg  Decimal? @map("developer_floorplate_per_building") @db.Decimal(12, 2)
+  totalParkingSpots           Int?     @map("total_parking_spots")
+  totalParkingArea            Decimal? @map("total_parking_area") @db.Decimal(12, 2)
+  parkingFloors               Int?     @map("parking_floors")
+  totalBalconyArea            Decimal? @map("total_balcony_area") @db.Decimal(12, 2)
+
+  // Financial Results
+  financingCost          Decimal? @map("financing_cost") @db.Decimal(14, 2)
+  totalCostsExclVat      Decimal? @map("total_costs_excl_vat") @db.Decimal(14, 2)
+  totalCostsInclVat      Decimal? @map("total_costs_incl_vat") @db.Decimal(14, 2)
+  expectedProfit         Decimal? @map("expected_profit") @db.Decimal(14, 2)
+  profitPercent          Decimal? @map("profit_percent") @db.Decimal(8, 4)
+  profitPercentStd21     Decimal? @map("profit_percent_standard21") @db.Decimal(8, 4)
+
+  // Breakdowns (JSON)
+  costBreakdown        Json? @map("cost_breakdown")
+  revenueBreakdown     Json? @map("revenue_breakdown")
+  areaBreakdown        Json? @map("area_breakdown")
+  calculationDetails   Json? @map("calculation_details")
+
+  // Multi-Agent
+  scenarios            Json? @map("scenarios")
+  optimizations        Json? @map("optimizations")
+  aiValidationNotes    String? @map("ai_validation_notes")
+
+  // Audit
+  previousResultsSnapshot Json? @map("previous_results_snapshot")
+
+  simulation Simulation @relation(fields: [simulationId], references: [id], onDelete: Cascade)
+
+  @@map("simulation_results")
+}

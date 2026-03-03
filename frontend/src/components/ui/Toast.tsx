@@ -9,9 +9,11 @@ export default function ToastProvider() {
         style: {
           fontFamily: 'Heebo, system-ui, sans-serif',
           direction: 'rtl',
-          borderRadius: '12px',
-          padding: '12px 16px',
+          borderRadius: '16px',
+          padding: '14px 18px',
           fontSize: '14px',
+          fontWeight: 500,
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04)',
         },
         success: {
           style: {
