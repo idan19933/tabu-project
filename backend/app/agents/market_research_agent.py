@@ -224,31 +224,43 @@ Return ONLY this JSON (no markdown, no backticks):
     )
 
     result = _extract_json(response)
-    if result.get("_parse_error"):
-        logger.warning(f"Step 1 parse error, using defaults for gush {gush}")
-        # Fallback based on gush range
+
+    # Gush-range fallback for Tel Aviv when search didn't find the neighborhood
+    needs_fallback = result.get("_parse_error") or not result.get("neighborhood")
+    if needs_fallback:
+        logger.warning(f"Step 1 {'parse error' if result.get('_parse_error') else 'empty neighborhood'}, "
+                       f"using gush-range fallback for gush {gush}")
         gush_num = int(gush) if str(gush).isdigit() else 0
         if 6900 <= gush_num < 6970:
             sub = "south"
-            nbhood = "דרום תל אביב"
+            nbhood = "פלורנטין/שפירא"
         elif 6970 <= gush_num < 7050:
             sub = "central"
-            nbhood = "מרכז תל אביב"
+            nbhood = "לב העיר/כרם התימנים"
         elif 7050 <= gush_num < 7200:
             sub = "north"
-            nbhood = "צפון תל אביב"
+            nbhood = "הצפון הישן"
         else:
             sub = "central"
-            nbhood = city
-        result = {
-            "street": "",
-            "house_number": "",
-            "neighborhood": nbhood,
-            "sub_area": sub,
-            "city": city,
-            "confidence": "low",
-            "sources": ["gush range fallback"],
-        }
+            nbhood = city or "לא ידוע"
+
+        if result.get("_parse_error"):
+            result = {
+                "street": "",
+                "house_number": "",
+                "neighborhood": nbhood,
+                "sub_area": sub,
+                "city": city,
+                "confidence": "low",
+                "sources": ["gush range fallback"],
+            }
+        else:
+            # Preserve any other data from the search, just fill in neighborhood
+            result["neighborhood"] = result.get("neighborhood") or nbhood
+            result["sub_area"] = result.get("sub_area") or sub
+            result["city"] = result.get("city") or city
+            if not result.get("sources"):
+                result["sources"] = ["gush range fallback"]
 
     return result
 
