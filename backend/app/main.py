@@ -40,7 +40,7 @@ app.include_router(research.router, prefix="/api/projects", tags=["research"])
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "version": "2.0.0"}
+    return {"status": "ok", "version": "2.1.0", "build": "2026-03-03-v2"}
 
 
 # Serve frontend static files in production
