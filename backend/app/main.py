@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import projects, simulations, documents, research
+from app.api import projects, simulations, documents, research, geo
 from app.api import extraction_status
 from app.config import settings
 
@@ -36,11 +36,12 @@ app.include_router(simulations.router, prefix="/api/simulations", tags=["simulat
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
 app.include_router(extraction_status.router, prefix="/api/projects", tags=["extraction"])
 app.include_router(research.router, prefix="/api/projects", tags=["research"])
+app.include_router(geo.router, prefix="/api/geo", tags=["geo"])
 
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "version": "2.1.0", "build": "2026-03-03-v2"}
+    return {"status": "ok", "version": "2.3.0", "build": "2026-03-04-v5-blueline-map"}
 
 
 # Serve frontend static files in production
