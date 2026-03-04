@@ -3,11 +3,11 @@ import { motion } from 'framer-motion';
 import type { SimulationStatus } from '../../types';
 
 const STATUS_STYLES: Record<SimulationStatus, string> = {
-  Draft: 'bg-slate-100 text-slate-600',
-  AI_Extracting: 'bg-purple-100 text-purple-700',
-  Pending_Review: 'bg-amber-100 text-amber-700',
-  Approved_For_Calc: 'bg-blue-100 text-blue-700',
-  Completed: 'bg-emerald-100 text-emerald-700',
+  Draft: 'bg-slate-100 text-slate-600 ring-slate-200',
+  AI_Extracting: 'bg-violet-50 text-violet-700 ring-violet-200',
+  Pending_Review: 'bg-amber-50 text-amber-700 ring-amber-200',
+  Approved_For_Calc: 'bg-primary-50 text-primary-700 ring-primary-200',
+  Completed: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
 };
 
 const STATUS_LABELS: Record<SimulationStatus, string> = {
@@ -24,10 +24,16 @@ export default function Badge({ status }: { status: SimulationStatus }) {
   const badge = (
     <span
       className={clsx(
-        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+        'inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ring-1 ring-inset',
         STATUS_STYLES[status],
       )}
     >
+      {isExtracting && (
+        <span className="relative flex h-2 w-2 me-1.5">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
+        </span>
+      )}
       {STATUS_LABELS[status]}
     </span>
   );
@@ -35,8 +41,8 @@ export default function Badge({ status }: { status: SimulationStatus }) {
   if (isExtracting) {
     return (
       <motion.span
-        animate={{ opacity: [1, 0.5, 1] }}
-        transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+        animate={{ opacity: [1, 0.7, 1] }}
+        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
       >
         {badge}
       </motion.span>
