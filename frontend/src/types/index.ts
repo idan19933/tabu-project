@@ -414,8 +414,52 @@ export interface ResearchPreviewResponse {
     locked_count: number;
   };
   data_sources: Record<string, string> | null;
+  live_data_sources?: LiveDataSources;
   research_summary: ResearchSummary | null;
   apartment_mix: Array<{ apartment_type: string; quantity: number; percentage_of_mix: number }> | null;
   validation_fixes: string[];
   confidence: Record<string, string>;
+}
+
+// --- Data Sources / Provenance ---
+export type SourceType = 'tabu' | 'market_research' | 'calculated' | 'default' | 'user_input' | 'live_api' | 'unknown';
+
+export interface LiveDataSource {
+  status: 'success' | 'failed';
+  value?: number;
+  date?: string;
+  yoy_change_pct?: number;
+  source?: string;
+  lat?: number;
+  lon?: number;
+  count?: number;
+  reason?: string;
+}
+
+export interface LiveDataSources {
+  cbs_construction_index?: LiveDataSource;
+  geocode?: LiveDataSource;
+  nadlan_deals?: LiveDataSource;
+}
+
+export interface ProvenanceField {
+  field: string;
+  section: string;
+  label_he: string;
+  value: number | string;
+  source_type: SourceType;
+  source_step: string;
+  source_detail: string;
+}
+
+export interface DataSourcesResponse {
+  fields: ProvenanceField[];
+  grouped_by_source: Record<string, ProvenanceField[]>;
+  data_sources: Record<string, string | string[]>;
+  live_data_sources?: LiveDataSources;
+  confidence: Record<string, string>;
+  research_summary: ResearchSummary | null;
+  locked_from_tabu: Record<string, number>;
+  comparable_projects: string;
+  validation_fixes: string[];
 }

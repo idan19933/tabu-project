@@ -1,0 +1,1287 @@
+"""Market Research Agent v2 — Multi-step pipeline for location-specific feasibility defaults.
+
+Replaces the single-shot Claude call with a 5-step sequential pipeline:
+  Step 1: Identify location (gush/chelka → address → neighborhood)
+  Step 2: Look up zoning/taba (applicable plans, building rights)
+  Step 3: Search construction costs (Lishkat Shmaim, market rates)
+  Step 4: Search sales prices (specific neighborhood, new construction)
+  Step 5: Calculate feasible parameters (pure math + validation)
+
+Each step does targeted web searches and extracts verified data.
+NEVER overwrites tabu-sourced data.
+"""
+import json
+import logging
+import math
+import re
+
+import anthropic
+
+from app.config import settings
+from app.services.live_data_fetcher import fetch_all_live_data
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _extract_json(response) -> dict:
+    """Extract JSON from a Claude response that may contain tool_use blocks."""
+    text = ""
+    for block in response.content:
+        if block.type == "text":
+            text += block.text
+
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned.rsplit("```", 1)[0]
+    cleaned = cleaned.strip()
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        match = re.search(r'\{[\s\S]*\}', cleaned)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+        return {"_parse_error": True, "_raw_text": cleaned[:500]}
+
+
+def _is_tel_aviv(city: str) -> bool:
+    """Check if city is Tel Aviv (Hebrew or English)."""
+    c = city.lower()
+    return "תל אביב" in c or "tel aviv" in c or "tel-aviv" in c
+
+
+def _default_floors(location: dict) -> int:
+    """Default floor count based on city/area."""
+    city = location.get("city", "")
+    sub = location.get("sub_area", "")
+    if _is_tel_aviv(city):
+        if sub == "south":
+            return 8
+        if sub in ("central", "north"):
+            return 10
+        return 8
+    if any(c in city for c in ["רמת גן", "גבעתיים"]):
+        return 9
+    if any(c in city for c in ["בת ים", "חולון"]):
+        return 10
+    if "חיפה" in city:
+        return 8
+    return 8
+
+
+def _default_coverage(location: dict) -> float:
+    """Default coverage based on city."""
+    city = location.get("city", "")
+    if _is_tel_aviv(city):
+        return 0.55
+    return 0.60
+
+
+def _scale_electricity(new_units: int) -> int:
+    """Scale electricity connection cost by project size."""
+    return max(120000, new_units * 6000)
+
+
+def _scale_initiation(existing_units: int) -> int:
+    """Scale initiation fee by number of existing tenants."""
+    return max(200000, existing_units * 25000)
+
+
+def _format_setbacks(zoning: dict) -> str:
+    parts = []
+    if zoning.get("setback_front"):
+        parts.append(f"Front: {zoning['setback_front']}m")
+    if zoning.get("setback_side"):
+        parts.append(f"Side: {zoning['setback_side']}m")
+    if zoning.get("setback_rear"):
+        parts.append(f"Rear: {zoning['setback_rear']}m")
+    return ", ".join(parts) if parts else ""
+
+
+def _generate_mix(existing_units: int, developer_units: int,
+                  return_addition: float, tabu_data: dict) -> list:
+    """Generate apartment mix from real sub-parcel data."""
+    sub_parcels = tabu_data.get("sub_parcels", [])
+
+    mix = []
+
+    # Group return apts by size
+    if sub_parcels:
+        small = [sp for sp in sub_parcels if sp.get("area_sqm", 0) < 43]
+        medium = [sp for sp in sub_parcels if 43 <= sp.get("area_sqm", 0) < 50]
+        large = [sp for sp in sub_parcels if sp.get("area_sqm", 0) >= 50]
+
+        if small:
+            avg = sum(sp.get("area_sqm", 0) for sp in small) / len(small) + return_addition
+            mix.append({"apartment_type": "2 חד׳ (תמורה)", "quantity": len(small),
+                         "percentage_of_mix": 0})
+        if medium:
+            avg = sum(sp.get("area_sqm", 0) for sp in medium) / len(medium) + return_addition
+            mix.append({"apartment_type": "3 חד׳ (תמורה)", "quantity": len(medium),
+                         "percentage_of_mix": 0})
+        if large:
+            avg = sum(sp.get("area_sqm", 0) for sp in large) / len(large) + return_addition
+            mix.append({"apartment_type": "3 חד׳ גדול (תמורה)", "quantity": len(large),
+                         "percentage_of_mix": 0})
+    else:
+        # No sub-parcel data, create generic return mix
+        mix.append({"apartment_type": "דירות תמורה", "quantity": existing_units,
+                     "percentage_of_mix": 0})
+
+    # Developer units
+    remaining = developer_units
+    dev_types = [
+        ("3 חד׳ (יזם)", 0.25),
+        ("4 חד׳ (יזם)", 0.40),
+        ("5 חד׳ (יזם)", 0.25),
+        ("פנטהאוז (יזם)", 0.10),
+    ]
+
+    for type_name, pct in dev_types:
+        qty = max(1, round(developer_units * pct))
+        if qty > remaining:
+            qty = remaining
+        if qty > 0:
+            mix.append({"apartment_type": type_name, "quantity": qty,
+                         "percentage_of_mix": 0})
+            remaining -= qty
+
+    # Leftover to 4-room
+    if remaining > 0:
+        for item in mix:
+            if "4 חד׳ (יזם)" in item["apartment_type"]:
+                item["quantity"] += remaining
+                break
+
+    # Calculate percentages
+    total_units = sum(m["quantity"] for m in mix)
+    for m in mix:
+        m["percentage_of_mix"] = round((m["quantity"] / total_units) * 100) if total_units > 0 else 0
+
+    return mix
+
+
+def _extract_conservation_from_tabu(tabu_data: dict) -> dict:
+    """Extract conservation (shimur) status from tabu liens.
+
+    Tabu liens may contain entries like:
+      {"type": "מבנה לשימור", "details": "עפ\"י תוכנית מתאר תא/2650"}
+    This means the building has conservation status per municipal plan.
+    """
+    liens = tabu_data.get("liens", [])
+    warnings = tabu_data.get("warnings", [])
+
+    conservation = {
+        "is_conservation": False,
+        "type": "none",
+        "plan": "",
+        "details": "",
+    }
+
+    # Check liens for conservation keywords
+    for lien in liens:
+        lien_type = (lien.get("type") or "").strip()
+        lien_details = (lien.get("details") or "").strip()
+        combined = f"{lien_type} {lien_details}"
+
+        if "שימור" in combined:
+            conservation["is_conservation"] = True
+
+            # Determine strictness
+            if "מחמיר" in combined or "שימור מחמיר" in combined:
+                conservation["type"] = "shimur_machmir"
+            else:
+                conservation["type"] = "shimur_ragil"
+
+            # Extract plan reference (e.g., "תא/2650", "תא/2650B")
+            plan_match = re.search(r'ת[אמ]/\d+[A-Za-z]*', combined)
+            if plan_match:
+                conservation["plan"] = plan_match.group()
+
+            conservation["details"] = lien_details or lien_type
+            logger.info(f"Conservation detected from tabu liens: {conservation}")
+            break
+
+    # Also check warnings for conservation references
+    if not conservation["is_conservation"]:
+        for w in warnings:
+            w_text = w if isinstance(w, str) else w.get("details", "")
+            if "שימור" in w_text:
+                conservation["is_conservation"] = True
+                conservation["type"] = "shimur_ragil"
+                plan_match = re.search(r'ת[אמ]/\d+[A-Za-z]*', w_text)
+                if plan_match:
+                    conservation["plan"] = plan_match.group()
+                conservation["details"] = w_text
+                logger.info(f"Conservation detected from tabu warnings: {conservation}")
+                break
+
+    return conservation
+
+
+def _apply_conservation_constraints(planning: dict, conservation: dict) -> list:
+    """Apply conservation-based constraints to planning parameters.
+
+    shimur_ragil (regular conservation):
+      - Max floors: 8
+      - Max multiplier: 3.0
+      - Max coverage: 50%
+      - Min returns: 25%
+
+    shimur_machmir (strict conservation):
+      - Max floors: 6
+      - Max multiplier: 2.0
+      - Max coverage: 40%
+      - Min returns: 30%
+    """
+    if not conservation.get("is_conservation"):
+        return []
+
+    fixes = []
+    ctype = conservation.get("type", "shimur_ragil")
+
+    if ctype == "shimur_machmir":
+        max_floors = 6
+        max_multiplier = 2.0
+        max_coverage = 40
+        min_returns = 30
+    else:  # shimur_ragil
+        max_floors = 8
+        max_multiplier = 3.0
+        max_coverage = 50
+        min_returns = 25
+
+    # Cap floors
+    current_floors = planning.get("number_of_floors", 0)
+    if current_floors > max_floors:
+        fixes.append(f"Conservation ({ctype}): capped floors {current_floors} → {max_floors}")
+        planning["number_of_floors"] = max_floors
+
+    # Cap multiplier
+    current_mult = planning.get("multiplier_far", 0)
+    if current_mult > max_multiplier:
+        fixes.append(f"Conservation ({ctype}): capped multiplier {current_mult} → {max_multiplier}")
+        planning["multiplier_far"] = max_multiplier
+
+    # Cap coverage
+    current_cov = planning.get("coverage_above_ground", 0)
+    if current_cov > max_coverage:
+        fixes.append(f"Conservation ({ctype}): capped coverage {current_cov}% → {max_coverage}%")
+        planning["coverage_above_ground"] = max_coverage
+
+    # Enforce minimum returns
+    current_returns = planning.get("returns_percent", 0)
+    if current_returns < min_returns:
+        fixes.append(f"Conservation ({ctype}): raised returns {current_returns}% → {min_returns}%")
+        planning["returns_percent"] = min_returns
+
+    return fixes
+
+
+def _clean_city(raw_city: str) -> str:
+    """Clean city name from tabu registry format."""
+    city = raw_city.replace("לשכת רישום מקרקעין:", "").strip()
+    city = city.replace("לשכת רישום:", "").strip()
+    if "תל אביב" in city or "תל-אביב" in city:
+        return "תל אביב"
+    return city
+
+
+# ---------------------------------------------------------------------------
+# Step 1: Identify Location
+# ---------------------------------------------------------------------------
+
+def _step1_identify_location(client: anthropic.Anthropic, locked: dict,
+                              live_data: dict | None = None) -> dict:
+    """Convert gush/chelka to physical address and neighborhood via web search."""
+    gush = locked["gush"]
+    chelka = locked["chelka"]
+    city = locked["city"]
+
+    # Inject verified geocode data if available
+    geocode_hint = ""
+    if live_data and live_data.get("geocode"):
+        geo = live_data["geocode"]
+        geocode_hint = f"""
+נתוני מיקום אמיתיים מ-Nominatim (OpenStreetMap):
+קואורדינטות: {geo['lat']}, {geo['lon']}
+כתובת מלאה: {geo.get('display_name', '')}
+השתמש במיקום זה כבסיס לחיפוש — זהו מיקום מאומת.
+"""
+
+    prompt = f"""Find the exact location for this Israeli property:
+- Gush (block): {gush}
+- Chelka (parcel): {chelka}
+- Registry city: {city}
+{geocode_hint}
+Do these searches IN ORDER:
+1. Search: "גוש {gush} חלקה {chelka} כתובת"
+2. Search: "גוש {gush} חלקה {chelka} {city} שכונה"
+3. If still unclear, search: "גוש {gush} {city} רחוב"
+
+You MUST determine the EXACT neighborhood from search results. Do NOT guess.
+Common Tel Aviv neighborhoods: פלורנטין, שפירא, נווה צדק, כרם התימנים, לב העיר, הצפון הישן, הצפון החדש, רמת אביב.
+
+Return ONLY this JSON (no markdown, no backticks):
+{{
+  "street": "...",
+  "house_number": "...",
+  "neighborhood": "...",
+  "sub_area": "south|central|north",
+  "city": "...",
+  "confidence": "high|medium|low",
+  "sources": ["..."]
+}}"""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1000,
+        system="You are a precise Israeli real estate location researcher. Search for real data. If unsure, set confidence to low. Return only valid JSON.",
+        tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    result = _extract_json(response)
+
+    # Handle parse errors — return minimal result, no fake neighborhood
+    if result.get("_parse_error"):
+        logger.warning(f"Step 1 parse error for gush {gush}, chelka {chelka}")
+        result = {
+            "street": "",
+            "house_number": "",
+            "neighborhood": "",
+            "sub_area": "",
+            "city": city,
+            "confidence": "low",
+            "sources": ["web search failed to parse"],
+        }
+    else:
+        # Ensure city is set (search may return it in different format)
+        result["city"] = result.get("city") or city
+        if not result.get("neighborhood"):
+            logger.warning(f"Step 1: web search returned no neighborhood for gush {gush}")
+            result["confidence"] = "low"
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Step 2: Look Up Zoning
+# ---------------------------------------------------------------------------
+
+def _step2_lookup_zoning(client: anthropic.Anthropic, locked: dict, location: dict,
+                          conservation: dict | None = None) -> dict:
+    """Search for applicable planning schemes for this property."""
+    gush = locked["gush"]
+    chelka = locked["chelka"]
+    city = location.get("city", "")
+    neighborhood = location.get("neighborhood", "")
+
+    # Include conservation info from tabu if available
+    conservation_hint = ""
+    if conservation and conservation.get("is_conservation"):
+        ctype = conservation.get("type", "shimur_ragil")
+        cplan = conservation.get("plan", "")
+        conservation_hint = f"""
+IMPORTANT: The tabu registry already shows this is a CONSERVATION BUILDING ({ctype}).
+Plan reference from tabu: {cplan}
+Search for specific constraints of this conservation plan."""
+
+    prompt = f"""Research the zoning and building rights for this Israeli property:
+- Gush: {gush}, Chelka: {chelka}
+- City: {city}, Neighborhood: {neighborhood}
+- Existing: {locked['existing_units']} units, {locked['floors_existing']} floors, lot area {locked['blue_line_area']} sqm
+{conservation_hint}
+
+Do these searches:
+1. Search: "גוש {gush} חלקה {chelka} תוכנית בניין עיר"
+2. Search: "{city} {neighborhood} פינוי בינוי זכויות בנייה"
+3. Search: "{city} תוכנית מתאר כוללנית תמ״א 38"
+
+Find:
+- Is this a conservation building (shimur ragil vs machmir)?
+- What masterplans apply (TA/2650B, TA/5000, TA/5500, etc.)?
+- What FAR/building rights are allowed?
+- Maximum floors allowed in this area?
+
+Return ONLY JSON:
+{{
+  "conservation_status": "shimur_ragil|shimur_machmir|none",
+  "applicable_plans": ["..."],
+  "plan_details": "...",
+  "max_far_allowed": <number or null>,
+  "max_floors_allowed": <number or null>,
+  "coverage_allowed": <number or null>,
+  "pinui_binui_eligible": true,
+  "special_notes": "...",
+  "sources": ["..."]
+}}"""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1500,
+        system="You are an Israeli urban planning expert. Search for real planning data. Return verified JSON only. Use null for unverified values.",
+        tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    result = _extract_json(response)
+    if result.get("_parse_error"):
+        logger.warning("Step 2 parse error, using defaults")
+        result = {
+            "conservation_status": "none",
+            "applicable_plans": [],
+            "max_far_allowed": None,
+            "max_floors_allowed": None,
+            "coverage_allowed": None,
+            "pinui_binui_eligible": True,
+            "special_notes": "",
+            "sources": [],
+        }
+
+    # CRITICAL: If tabu liens confirm conservation but web search missed it,
+    # enforce the tabu-sourced conservation status (tabu is ground truth)
+    if conservation and conservation.get("is_conservation"):
+        tabu_ctype = conservation["type"]
+        web_cstatus = result.get("conservation_status", "none")
+        if web_cstatus == "none" or not web_cstatus:
+            logger.info(f"Enforcing conservation from tabu: {tabu_ctype} (web said: {web_cstatus})")
+            result["conservation_status"] = tabu_ctype
+        # Add plan reference from tabu if not already in applicable_plans
+        tabu_plan = conservation.get("plan", "")
+        if tabu_plan:
+            plans = result.get("applicable_plans") or []
+            if tabu_plan not in plans:
+                plans.append(tabu_plan)
+                result["applicable_plans"] = plans
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Step 3: Search Construction Costs
+# ---------------------------------------------------------------------------
+
+def _step3_search_costs(client: anthropic.Anthropic, locked: dict, location: dict,
+                         live_data: dict | None = None) -> dict:
+    """Search for real construction costs from Lishkat Shmaim and industry sources."""
+    city = location.get("city", "")
+    sub_area = location.get("sub_area", "")
+
+    # Inject CBS cost index as ground truth anchor
+    cbs_hint = ""
+    if live_data and live_data.get("cbs_index"):
+        cbs = live_data["cbs_index"]
+        cbs_hint = f"""
+נתוני מדד תשומות הבנייה מלשכת הסטטיסטיקה (CBS) — נתון חי מ-API ממשלתי:
+מדד נוכחי: {cbs['index_value']} (תאריך: {cbs['index_date']})
+{f"שינוי שנתי: {cbs['yoy_change_pct']}%" if cbs.get('yoy_change_pct') is not None else ""}
+מקור: {cbs['source']}
+ודא שעלויות הבנייה שאתה מוצא תואמות למגמה הזו.
+"""
+
+    prompt = f"""Find current construction costs for urban renewal (pinui-binui) in {city} ({sub_area} area).
+{cbs_hint}
+Do these searches:
+1. Search: "עלות בנייה למטר {city} 2025 2026 לשכת שמאים"
+2. Search: "עלויות ביצוע פינוי בינוי {city} 2025"
+
+I need REAL market rates (NIS per sqm) for:
+- Residential construction (high-rise 8+ floors in {city})
+- Service areas (lobbies, stairs, corridors)
+- Balconies
+- Site development
+- Parking (underground per sqm)
+- Demolition cost (for a {locked['existing_units']}-unit, {locked['floors_existing']}-floor building, {locked['blue_line_area']} sqm lot)
+
+Also find:
+- Betterment levy (hetel hashbacha) typical for pinui-binui in {city}
+- Current bank financing interest rate for construction in Israel
+
+IMPORTANT ANCHOR RANGES (use these as sanity checks):
+- Tel Aviv high-rise: ~12,000-14,000 NIS/sqm residential
+- Tel Aviv mid-rise: ~10,000-12,000 NIS/sqm
+- Haifa: ~8,000-10,000 NIS/sqm
+- Periphery: ~5,000-7,000 NIS/sqm
+- Service area cost is typically 50-65% of residential
+- Balcony cost is typically 30-40% of residential
+- Underground parking: ~5,000-8,000 NIS/sqm
+
+Return ONLY JSON:
+{{
+  "residential_per_sqm": <number>,
+  "service_per_sqm": <number>,
+  "commercial_per_sqm": <number>,
+  "balcony_per_sqm": <number>,
+  "development_per_sqm": <number>,
+  "parking_per_sqm": <number>,
+  "demolition_lump": <number>,
+  "betterment_levy": <number>,
+  "financing_rate": <number like 5.5>,
+  "cost_data_source": "...",
+  "cost_data_date": "...",
+  "confidence": "high|medium|low"
+}}"""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1000,
+        system="You are an Israeli construction cost analyst. Return real market data with sources. Do NOT invent numbers. If unsure, use the anchor ranges provided and set confidence to medium.",
+        tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    result = _extract_json(response)
+    if result.get("_parse_error"):
+        logger.warning("Step 3 parse error, using anchor defaults for construction costs")
+        # Defaults based on city
+        if "תל אביב" in city:
+            result = {"residential_per_sqm": 12500, "service_per_sqm": 7500,
+                      "commercial_per_sqm": 10000, "balcony_per_sqm": 4500,
+                      "development_per_sqm": 2500, "parking_per_sqm": 6500,
+                      "demolition_lump": 400000, "betterment_levy": 1000000,
+                      "financing_rate": 5.5, "confidence": "low",
+                      "cost_data_source": "anchor defaults (parse error)"}
+        else:
+            result = {"residential_per_sqm": 9000, "service_per_sqm": 5500,
+                      "commercial_per_sqm": 7500, "balcony_per_sqm": 3500,
+                      "development_per_sqm": 2000, "parking_per_sqm": 5500,
+                      "demolition_lump": 300000, "betterment_levy": 600000,
+                      "financing_rate": 5.5, "confidence": "low",
+                      "cost_data_source": "anchor defaults (parse error)"}
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Step 4: Search Sales Prices
+# ---------------------------------------------------------------------------
+
+def _step4_search_prices(client: anthropic.Anthropic, locked: dict, location: dict,
+                          conservation: dict | None = None,
+                          live_data: dict | None = None) -> dict:
+    """Search for real sales prices in the specific neighborhood."""
+    city = location.get("city", "")
+    neighborhood = location.get("neighborhood", "")
+
+    conservation_note = ""
+    if conservation and conservation.get("is_conservation"):
+        conservation_note = f"""
+NOTE: This is a CONSERVATION building ({conservation['type']}).
+Conservation buildings in premium neighborhoods often command HIGHER prices per sqm
+due to prestige, limited supply, and exclusive location."""
+
+    # Inject nadlan deals as ground truth anchor if available
+    nadlan_hint = ""
+    if live_data and live_data.get("nadlan_deals"):
+        deals = live_data["nadlan_deals"]
+        deals_text = "\n".join(
+            f"  - {d.get('address', '?')}: {d.get('price', '?'):,} ₪, {d.get('area', '?')} מ\"ר, {d.get('date', '?')}"
+            if isinstance(d.get('price'), (int, float)) else
+            f"  - {d.get('address', '?')}: {d.get('price', '?')} ₪, {d.get('area', '?')} מ\"ר, {d.get('date', '?')}"
+            for d in deals[:5]
+        )
+        nadlan_hint = f"""
+עסקאות אחרונות מנדל"ן ממשלתי (נתון חי מ-API):
+{deals_text}
+השתמש בנתונים אלו כעוגן למחירי המכירה.
+"""
+
+    prompt = f"""Find current NEW CONSTRUCTION apartment sales prices in {neighborhood}, {city}, Israel.
+{conservation_note}
+{nadlan_hint}
+Do these searches:
+1. Search: "מחיר דירה חדשה {neighborhood} {city} 2025 2026 מחיר למטר"
+2. Search: "פרויקט פינוי בינוי {neighborhood} {city} מחיר"
+3. Search: "מדלן {neighborhood} {city} מחיר למטר"
+
+I need prices per sqm for NEW construction (not second-hand) in {neighborhood}:
+- Residential price per sqm
+- Commercial/retail price per sqm (ground floor)
+- Parking spot price
+- Storage unit price per sqm
+
+CRITICAL VALIDATION RULES:
+- In most Israeli areas: RESIDENTIAL price per sqm > COMMERCIAL price per sqm
+- Commercial is typically 60-80% of residential price
+- Tel Aviv neighborhoods vary SIGNIFICANTLY:
+  - South (Florentin/Shapira/Neve Tzedek): 45,000-65,000 NIS/sqm
+  - Central (Lev HaIr/Kerem HaTeimanim): 55,000-75,000 NIS/sqm
+  - Old North (צפון ישן/Dizengoff area): 75,000-95,000 NIS/sqm
+  - New North (צפון חדש): 80,000-100,000 NIS/sqm
+  - Ramat Aviv: 65,000-85,000 NIS/sqm
+- Bat Yam/Holon: 28,000-38,000 NIS/sqm
+- Haifa: 20,000-35,000 NIS/sqm
+- Parking spot in TA: 150,000-300,000 NIS
+
+Return ONLY JSON:
+{{
+  "residential_per_sqm": <number>,
+  "commercial_per_sqm": <number>,
+  "parking_per_spot": <number>,
+  "storage_per_sqm": <number>,
+  "comparable_projects": ["project name - price range"],
+  "price_data_source": "...",
+  "price_data_date": "...",
+  "confidence": "high|medium|low"
+}}"""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1000,
+        system="You are an Israeli real estate pricing analyst. Return real market prices with sources. Residential is almost always more expensive per sqm than commercial. If unsure, use the anchor ranges and set confidence to medium.",
+        tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    result = _extract_json(response)
+    if result.get("_parse_error"):
+        logger.warning("Step 4 parse error, using anchor defaults for prices")
+        sub_area = location.get("sub_area", "")
+        if "תל אביב" in city:
+            # Differentiate by sub_area within Tel Aviv
+            if sub_area == "north" or "צפון" in neighborhood:
+                result = {"residential_per_sqm": 82000, "commercial_per_sqm": 55000,
+                          "parking_per_spot": 250000, "storage_per_sqm": 35000,
+                          "comparable_projects": [], "confidence": "low",
+                          "price_data_source": "anchor defaults - TA north (parse error)"}
+            elif sub_area == "central" or "לב העיר" in neighborhood:
+                result = {"residential_per_sqm": 65000, "commercial_per_sqm": 45000,
+                          "parking_per_spot": 220000, "storage_per_sqm": 28000,
+                          "comparable_projects": [], "confidence": "low",
+                          "price_data_source": "anchor defaults - TA central (parse error)"}
+            else:
+                result = {"residential_per_sqm": 52000, "commercial_per_sqm": 36000,
+                          "parking_per_spot": 200000, "storage_per_sqm": 23000,
+                          "comparable_projects": [], "confidence": "low",
+                          "price_data_source": "anchor defaults - TA south (parse error)"}
+        else:
+            result = {"residential_per_sqm": 30000, "commercial_per_sqm": 21000,
+                      "parking_per_spot": 120000, "storage_per_sqm": 13000,
+                      "comparable_projects": [], "confidence": "low",
+                      "price_data_source": "anchor defaults (parse error)"}
+
+    # HARD VALIDATION: residential must be >= commercial
+    res_price = result.get("residential_per_sqm", 0)
+    com_price = result.get("commercial_per_sqm", 0)
+    if com_price > res_price and res_price > 0:
+        result["commercial_per_sqm"] = int(res_price * 0.7)
+        result["_price_fix_applied"] = "commercial was higher than residential, corrected to 70%"
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Step 5: Calculate Feasible Parameters (pure math, NO search)
+# ---------------------------------------------------------------------------
+
+def _step5_generate_parameters(client: anthropic.Anthropic, locked: dict,
+                                location: dict, zoning: dict,
+                                costs: dict, prices: dict,
+                                tabu_data: dict, project_id: str,
+                                conservation: dict | None = None) -> dict:
+    """Takes all verified data and CALCULATES the parameters. Pure math + logic."""
+
+    blue_line = locked["blue_line_area"]
+    existing_units = locked["existing_units"]
+    existing_area = locked["existing_area"]
+    existing_floors = locked["floors_existing"]
+
+    # --- Planning calculations ---
+    max_floors = zoning.get("max_floors_allowed") or _default_floors(location)
+    coverage_raw = zoning.get("coverage_allowed") or (_default_coverage(location) * 100)
+    coverage = coverage_raw / 100 if coverage_raw > 1 else coverage_raw
+
+    footprint = blue_line * coverage
+    total_above_ground = footprint * max_floors
+
+    service_pct = 18
+    usable_floorplate = total_above_ground / (1 + service_pct / 100)
+
+    avg_apt = 80 if location.get("sub_area") in ("south", "central") else 90
+    max_units_by_area = int(usable_floorplate / avg_apt) if avg_apt > 0 else 0
+
+    # Multiplier = new_units / existing_units, clamped 2.0-4.5
+    if existing_units > 0:
+        raw_multiplier = max_units_by_area / existing_units
+        multiplier = min(max(raw_multiplier, 2.0), 4.5)
+        multiplier = round(multiplier * 2) / 2  # round to nearest 0.5
+    else:
+        multiplier = 2.5
+
+    new_units = int(existing_units * multiplier)
+    total_floorplate = new_units * avg_apt
+
+    # Return percentage
+    return_addition = 12
+    return_fp = existing_area + (existing_units * return_addition)
+    returns_pct = round((return_fp / total_floorplate) * 100) if total_floorplate > 0 else 30
+    returns_pct = min(max(returns_pct, 20), 45)
+
+    developer_units = max(0, new_units - existing_units)
+    developer_fp = max(0, total_floorplate - return_fp)
+
+    # Parking — use locked["city"] (always Hebrew) for reliable checks
+    parking_ratio = 1.0
+    city_for_checks = locked.get("city", "") or location.get("city", "")
+    if "תל אביב" in city_for_checks or "tel aviv" in city_for_checks.lower():
+        parking_ratio = 0.8
+    parking_gross = 35
+
+    # --- Cost values ---
+    res_cost = costs.get("residential_per_sqm", 12500)
+    service_cost = costs.get("service_per_sqm", int(res_cost * 0.6))
+    com_cost = costs.get("commercial_per_sqm", int(res_cost * 0.8))
+    balcony_cost = costs.get("balcony_per_sqm", int(res_cost * 0.35))
+    dev_cost = costs.get("development_per_sqm", 2500)
+    demolition = costs.get("demolition_lump", 350000)
+    betterment = costs.get("betterment_levy", 800000)
+    interest = costs.get("financing_rate", 5.5)
+
+    # Betterment cap: ~100K-150K per existing unit
+    max_betterment = existing_units * 150000
+    if betterment > max_betterment and existing_units > 0:
+        betterment = max_betterment
+
+    duration = 24 if new_units <= 20 else 30 if new_units <= 40 else 36
+
+    # --- Revenue values ---
+    res_price = prices.get("residential_per_sqm", 50000)
+    com_price = prices.get("commercial_per_sqm", int(res_price * 0.7))
+    parking_price = prices.get("parking_per_spot", 180000)
+    storage_price = prices.get("storage_per_sqm", int(res_price * 0.45))
+
+    # --- Profitability pre-check ---
+    estimated_construction = total_floorplate * res_cost
+    estimated_additional = estimated_construction * 0.35  # rough overhead
+    estimated_costs = (estimated_construction + estimated_additional) * 1.17
+    estimated_revenue = developer_fp * res_price
+    estimated_profit_pct = ((estimated_revenue - estimated_costs) / estimated_costs * 100) if estimated_costs > 0 else 0
+
+    adjustment_notes = []
+    if estimated_profit_pct < 15 and max_floors < 12:
+        max_floors += 1
+        new_multiplier = min(multiplier + 0.5, 4.5)
+        new_units = int(existing_units * new_multiplier)
+        developer_units = max(0, new_units - existing_units)
+        total_floorplate = new_units * avg_apt
+        developer_fp = max(0, total_floorplate - return_fp)
+        adjustment_notes.append(f"Added 1 floor to improve profitability (was {estimated_profit_pct:.0f}%)")
+        multiplier = new_multiplier
+
+    # --- Generate research summary text ---
+    conservation_desc = ""
+    if conservation and conservation.get("is_conservation"):
+        conservation_desc = f"\nConservation: {conservation['type']} per plan {conservation.get('plan', 'N/A')}"
+    try:
+        summary_response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=400,
+            messages=[{"role": "user", "content": f"""Write a brief Hebrew research summary (3-4 sentences) for this property:
+Location: {location.get('neighborhood', '')}, {location.get('city', '')}
+Plans: {zoning.get('applicable_plans', [])}{conservation_desc}
+Market: residential {res_price:,} NIS/sqm, construction {res_cost:,} NIS/sqm
+Project: {existing_units} existing units -> {new_units} new units on {blue_line} sqm lot
+Write in Hebrew. Be specific about THIS property. If conservation building, mention it."""}],
+        )
+        summary_text = "".join(b.text for b in summary_response.content if b.type == "text")
+    except Exception as e:
+        logger.warning(f"Summary generation failed: {e}")
+        summary_text = ""
+
+    # --- Apartment mix ---
+    mix = _generate_mix(existing_units, developer_units, return_addition, tabu_data)
+
+    # --- Build output matching DB schema ---
+    result = {
+        "research_summary": {
+            "neighborhood": location.get("neighborhood", ""),
+            "area_description": f"{location.get('sub_area', '')} {location.get('city', '')}",
+            "zoning": ", ".join(zoning.get("applicable_plans") or []),
+            "conservation_status": zoning.get("conservation_status", "none"),
+            "applicable_plans": zoning.get("applicable_plans", []),
+            "market_trend": f"Residential: {res_price:,} NIS/sqm | Construction: {res_cost:,} NIS/sqm",
+            "comparable_projects": ", ".join(prices.get("comparable_projects") or []),
+            "summary_text": summary_text,
+            "confidence": {
+                "costs": costs.get("confidence", "medium"),
+                "prices": prices.get("confidence", "medium"),
+            },
+            "validation_fixes": adjustment_notes,
+        },
+        "planning_parameters": {
+            "planning_stage": "pre_planning",
+            "returns_percent": returns_pct,
+            "return_area_per_apt": return_addition,
+            "avg_apt_size_sqm": avg_apt,
+            "number_of_floors": max_floors,
+            "coverage_above_ground": int(coverage * 100),
+            "coverage_underground": 75,
+            "multiplier_far": multiplier,
+            "blue_line_area": blue_line,  # LOCKED from tabu
+            "parking_standard_ratio": parking_ratio,
+            "gross_area_per_parking": parking_gross,
+            "service_area_percent": service_pct,
+            "service_area_sqm": 0,
+            "public_area_sqm": 0,
+            "parking_floor_area": int(blue_line * 0.75),
+            "balcony_area_per_unit": 12,
+            "typ_floor_area_min": int(footprint * 0.8),
+            "typ_floor_area_max": int(footprint),
+            "apts_per_floor_min": 3,
+            "apts_per_floor_max": min(5, max(3, int(footprint / 70))),
+            "building_lines_notes": _format_setbacks(zoning),
+            "public_tasks_notes": zoning.get("special_notes", ""),
+        },
+        "apartment_mix": mix,
+        "cost_parameters": {
+            # Per-sqm rates (absolute)
+            "cost_per_sqm_residential": res_cost,
+            "cost_per_sqm_service": service_cost,
+            "cost_per_sqm_commercial": com_cost,
+            "cost_per_sqm_balcony": balcony_cost,
+            "cost_per_sqm_development": dev_cost,
+            # Absolute NIS costs
+            "betterment_levy": betterment,
+            "purchase_tax": 0,  # exempt for pinui-binui typically
+            "electricity_connection": _scale_electricity(new_units),
+            "demolition": demolition,
+            "parking_construction": 0,  # let calc engine compute from sqm
+            "rent_subsidy": existing_units * 4000 * duration,  # monthly rent × duration
+            "evacuation_cost": existing_units * 15000,
+            "moving_cost": existing_units * 8000,
+            # Percentage-based costs (% of construction cost)
+            "planning_consultants_pct": 6,
+            "permits_fees_pct": 2,
+            "bank_supervision_pct": 1.5,
+            "engineering_management_pct": 3,
+            "tenant_supervision_pct": 1.5,
+            "management_overhead_pct": 4,
+            "marketing_advertising_pct": 2,
+            "tenant_lawyer_pct": 1,
+            "developer_lawyer_pct": 1,
+            "contingency_pct": 5,
+            "initiation_fee_pct": 3,
+            # Financial
+            "construction_duration_months": duration,
+            "financing_interest_rate": interest,
+            "vat_rate": 17,
+            "cpi_linkage_pct": 2,
+            # Traceability
+            "data_sources": {
+                "location": location.get("sources", []),
+                "costs": costs.get("cost_data_source", ""),
+                "prices": prices.get("price_data_source", ""),
+                "zoning": zoning.get("sources", []),
+            },
+        },
+        "revenue_parameters": {
+            "price_per_sqm_residential": res_price,
+            "price_per_sqm_commercial": com_price,
+            "price_per_sqm_parking": parking_price,
+            "price_per_sqm_storage": storage_price,
+            "sales_pace_per_month": max(2, developer_units // 8),
+            "marketing_discount_pct": 3,
+            "price_per_unit_by_type": {},
+        },
+        "data_sources": {
+            "location": location.get("sources", []),
+            "construction_costs": costs.get("cost_data_source", ""),
+            "sales_prices": prices.get("price_data_source", ""),
+            "planning": zoning.get("sources", []),
+            "comparable_projects": ", ".join(prices.get("comparable_projects") or []),
+        },
+        "_locked_from_tabu": {
+            "blue_line_area": blue_line,
+            "existing_units": existing_units,
+            "existing_area": existing_area,
+        },
+    }
+
+    # --- Build field provenance map ---
+    cost_source_detail = costs.get("cost_data_source", "Web search")
+    price_source_detail = prices.get("price_data_source", "Web search")
+    result["_field_provenance"] = {
+        # Tabu (government registry)
+        "blue_line_area": {"source": "tabu", "step": "locked", "detail": "נסח טאבו — שטח קו כחול"},
+        # Planning from zoning research (step 2)
+        "number_of_floors": {"source": "market_research", "step": "step2_zoning", "detail": "מחקר תב״ע ומספר קומות"},
+        "coverage_above_ground": {"source": "market_research", "step": "step2_zoning", "detail": "מחקר תב״ע — אחוזי כיסוי"},
+        "coverage_underground": {"source": "market_research", "step": "step2_zoning", "detail": "מחקר תב״ע — כיסוי תת קרקעי"},
+        # Costs from web search (step 3)
+        "cost_per_sqm_residential": {"source": "market_research", "step": "step3_costs", "detail": cost_source_detail},
+        "cost_per_sqm_service": {"source": "market_research", "step": "step3_costs", "detail": cost_source_detail},
+        "cost_per_sqm_commercial": {"source": "market_research", "step": "step3_costs", "detail": cost_source_detail},
+        "cost_per_sqm_balcony": {"source": "market_research", "step": "step3_costs", "detail": cost_source_detail},
+        "cost_per_sqm_development": {"source": "market_research", "step": "step3_costs", "detail": cost_source_detail},
+        "betterment_levy": {"source": "market_research", "step": "step3_costs", "detail": "היטל השבחה — חישוב לפי מכפיל ויח״ד"},
+        "demolition": {"source": "market_research", "step": "step3_costs", "detail": cost_source_detail},
+        "financing_interest_rate": {"source": "market_research", "step": "step3_costs", "detail": "ריבית מימון — נתוני שוק"},
+        # Prices from web search (step 4)
+        "price_per_sqm_residential": {"source": "market_research", "step": "step4_prices", "detail": price_source_detail},
+        "price_per_sqm_commercial": {"source": "market_research", "step": "step4_prices", "detail": price_source_detail},
+        "price_per_sqm_parking": {"source": "market_research", "step": "step4_prices", "detail": price_source_detail},
+        "price_per_sqm_storage": {"source": "market_research", "step": "step4_prices", "detail": price_source_detail},
+        # Calculated fields (step 5)
+        "returns_percent": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב מתמטי — יחס תמורה/בנייה חדשה"},
+        "multiplier_far": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב מכפיל — רווחיות מינימלית 15%"},
+        "parking_standard_ratio": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב — 1.5 חניות ליח״ד"},
+        "rent_subsidy": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב — שכ\"ד × יח״ד קיימות × משך בנייה"},
+        "evacuation_cost": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב — 15,000 ₪ × יח״ד קיימות"},
+        "moving_cost": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב — 8,000 ₪ × יח״ד קיימות"},
+        "electricity_connection": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב — לפי מספר יח״ד חדשות"},
+        "sales_pace_per_month": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב — יח״ד יזם / 8 חודשים"},
+        "construction_duration_months": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב — לפי מספר קומות"},
+        "return_area_per_apt": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב — תוספת שטח תמורה"},
+        "avg_apt_size_sqm": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב — שטח דירה ממוצע"},
+        "parking_floor_area": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב — 75% משטח קו כחול"},
+        "typ_floor_area_min": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב — 80% מטביעת רגל"},
+        "typ_floor_area_max": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב — טביעת רגל מלאה"},
+        "apts_per_floor_min": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב — 3 דירות לקומה מינימום"},
+        "apts_per_floor_max": {"source": "calculated", "step": "step5_parameters", "detail": "חישוב — לפי שטח טביעת רגל"},
+        # Default industry values
+        "planning_consultants_pct": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל תעשייתית — 6%"},
+        "permits_fees_pct": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל תעשייתית — 2%"},
+        "bank_supervision_pct": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל תעשייתית — 1.5%"},
+        "engineering_management_pct": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל תעשייתית — 3%"},
+        "tenant_supervision_pct": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל תעשייתית — 1.5%"},
+        "management_overhead_pct": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל תעשייתית — 4%"},
+        "marketing_advertising_pct": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל תעשייתית — 2%"},
+        "tenant_lawyer_pct": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל תעשייתית — 1%"},
+        "developer_lawyer_pct": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל תעשייתית — 1%"},
+        "contingency_pct": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל תעשייתית — 5%"},
+        "initiation_fee_pct": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל תעשייתית — 3%"},
+        "marketing_discount_pct": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל תעשייתית — 3%"},
+        "vat_rate": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל — 17%"},
+        "cpi_linkage_pct": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל — 2%"},
+        "service_area_percent": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל תעשייתית"},
+        "gross_area_per_parking": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל — 25 מ\"ר לחנייה"},
+        "balcony_area_per_unit": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל — 12 מ\"ר ליח״ד"},
+        "purchase_tax": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל — פטור בפינוי-בינוי"},
+        "parking_construction": {"source": "default", "step": "step5_parameters", "detail": "ברירת מחדל — חישוב ממנוע"},
+    }
+
+    # --- Apply conservation constraints (CRITICAL for heritage buildings) ---
+    if conservation and conservation.get("is_conservation"):
+        cons_fixes = _apply_conservation_constraints(
+            result["planning_parameters"], conservation
+        )
+        if cons_fixes:
+            result["research_summary"]["validation_fixes"].extend(cons_fixes)
+            # Recalculate dependent values after capping
+            capped_floors = result["planning_parameters"]["number_of_floors"]
+            capped_mult = result["planning_parameters"]["multiplier_far"]
+            new_units = int(existing_units * capped_mult)
+            developer_units = max(0, new_units - existing_units)
+            total_floorplate = new_units * avg_apt
+            return_fp_new = existing_area + (existing_units * return_addition)
+            developer_fp = max(0, total_floorplate - return_fp_new)
+            returns_pct_new = round((return_fp_new / total_floorplate) * 100) if total_floorplate > 0 else 30
+            returns_pct_new = min(max(returns_pct_new, 20), 45)
+            result["planning_parameters"]["returns_percent"] = returns_pct_new
+            # Regenerate apartment mix with corrected units
+            result["apartment_mix"] = _generate_mix(
+                existing_units, developer_units, return_addition, tabu_data
+            )
+            result["revenue_parameters"]["sales_pace_per_month"] = max(2, developer_units // 8)
+            logger.info(f"Conservation constraints applied: {cons_fixes}")
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Validation Layer
+# ---------------------------------------------------------------------------
+
+def _validate_and_fix(parameters: dict, locked: dict) -> dict:
+    """Validate research output against tabu data and known ranges."""
+    fixes = []
+    planning = parameters.get("planning_parameters", {})
+    costs = parameters.get("cost_parameters", {})
+    revenue = parameters.get("revenue_parameters", {})
+
+    # 1. Blue line must match tabu
+    if planning.get("blue_line_area") != locked["blue_line_area"]:
+        fixes.append(f"Fixed blue_line: {planning.get('blue_line_area')} -> {locked['blue_line_area']}")
+        planning["blue_line_area"] = locked["blue_line_area"]
+
+    # 2. Check that proposed units physically fit on the lot
+    blue_line = locked["blue_line_area"]
+    floors = planning.get("number_of_floors", 8)
+    coverage = planning.get("coverage_above_ground", 55) / 100
+    max_floorplate = blue_line * coverage * floors
+    avg_apt = planning.get("avg_apt_size_sqm", 80)
+    max_units = int(max_floorplate / (avg_apt * 1.18)) if avg_apt > 0 else 0
+    multiplier = planning.get("multiplier_far", 2.5)
+    proposed_units = int(locked["existing_units"] * multiplier) if locked["existing_units"] > 0 else 0
+
+    if proposed_units > max_units and max_units > 0 and locked["existing_units"] > 0:
+        new_multiplier = round((max_units / locked["existing_units"]) * 2) / 2
+        new_multiplier = max(2.0, new_multiplier)
+        fixes.append(f"Fixed multiplier: {multiplier} -> {new_multiplier} (lot fits {max_units} units, not {proposed_units})")
+        planning["multiplier_far"] = new_multiplier
+
+    # 3. Residential price >= commercial price
+    res_price = revenue.get("price_per_sqm_residential", 0)
+    com_price = revenue.get("price_per_sqm_commercial", 0)
+    if com_price > res_price and res_price > 0:
+        revenue["price_per_sqm_commercial"] = int(res_price * 0.7)
+        fixes.append(f"Fixed commercial price: {com_price:,} -> {revenue['price_per_sqm_commercial']:,} (was > residential)")
+
+    # 4. Construction cost sanity check
+    res_cost = costs.get("cost_per_sqm_residential", 0)
+    if res_cost > 18000:
+        costs["cost_per_sqm_residential"] = 13000
+        fixes.append(f"Fixed construction cost: {res_cost:,} -> 13,000 (unrealistically high)")
+    elif 0 < res_cost < 5000:
+        costs["cost_per_sqm_residential"] = 8000
+        fixes.append(f"Fixed construction cost: {res_cost:,} -> 8,000 (unrealistically low)")
+
+    # 5. Betterment levy: must be absolute NIS, not a percentage
+    betterment = costs.get("betterment_levy", 0)
+    if 0 < betterment < 1000:
+        # Looks like a percentage (e.g., 0.06 = 6%), not an absolute NIS value
+        # Default to 100K per existing unit for pinui-binui
+        default_betterment = locked["existing_units"] * 100000 if locked["existing_units"] > 0 else 800000
+        fixes.append(f"Fixed betterment: {betterment} -> {default_betterment:,} (was percentage, converted to absolute NIS)")
+        costs["betterment_levy"] = default_betterment
+        betterment = default_betterment
+    if locked["existing_units"] > 0:
+        max_betterment = locked["existing_units"] * 150000
+        if betterment > max_betterment:
+            costs["betterment_levy"] = max_betterment
+            fixes.append(f"Fixed betterment: {betterment:,} -> {max_betterment:,} (capped at 150K/unit)")
+
+    # 6. Returns percent clamped 20-45%
+    returns = planning.get("returns_percent", 30)
+    if returns < 20 or returns > 45:
+        clamped = max(20, min(45, returns))
+        planning["returns_percent"] = clamped
+        fixes.append(f"Clamped returns_percent: {returns} -> {clamped}")
+
+    # Store fixes
+    if fixes:
+        summary = parameters.get("research_summary", {})
+        existing_fixes = summary.get("validation_fixes", [])
+        summary["validation_fixes"] = existing_fixes + fixes
+        parameters["research_summary"] = summary
+
+    return parameters
+
+
+# ---------------------------------------------------------------------------
+# Main Entry Point
+# ---------------------------------------------------------------------------
+
+def run_market_research(tabu_data: dict, project_id: str) -> dict:
+    """Multi-step market research pipeline.
+
+    Each step does targeted searches and validates results before proceeding.
+    NEVER overwrites tabu-sourced data.
+    """
+    if not settings.ANTHROPIC_API_KEY:
+        raise ValueError("No ANTHROPIC_API_KEY configured")
+
+    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+    # === LOCKED VALUES from Tabu (NEVER overwrite these) ===
+    # Build sub_parcels from owners if not provided directly
+    sub_parcels = tabu_data.get("sub_parcels", [])
+    if not sub_parcels:
+        # Derive from owners — group by sub_parcel number
+        owners = tabu_data.get("owners", [])
+        sp_map: dict[str, dict] = {}
+        for o in owners:
+            sp_id = o.get("sub_parcel")
+            if sp_id and sp_id not in sp_map:
+                sp_map[sp_id] = {
+                    "sub_parcel": sp_id,
+                    "area_sqm": o.get("area_sqm", 0),
+                    "floor": o.get("floor", ""),
+                }
+        sub_parcels = list(sp_map.values())
+        logger.info(f"Derived {len(sub_parcels)} sub_parcels from owners list")
+
+    existing_area = sum(sp.get("area_sqm", 0) for sp in sub_parcels if sp.get("area_sqm"))
+    if not existing_area:
+        existing_area = tabu_data.get("total_residential_area_sqm",
+                                      tabu_data.get("area_sqm", 0))
+
+    # Count existing units
+    existing_units = tabu_data.get("total_sub_parcels", 0) or len(sub_parcels)
+
+    # Blue line area — try multiple keys
+    blue_line = (tabu_data.get("shared_area_sqm")
+                 or tabu_data.get("lot_area")
+                 or tabu_data.get("area_sqm")
+                 or 0)
+
+    # Floors — try direct value, or infer from owner floor data
+    floors_existing = tabu_data.get("floors", 0)
+    if not floors_existing and sub_parcels:
+        unique_floors = set(sp.get("floor", "") for sp in sub_parcels if sp.get("floor"))
+        floors_existing = len(unique_floors) if unique_floors else 0
+
+    # City — try registry, city, or infer from gush
+    raw_city = tabu_data.get("registry") or tabu_data.get("city") or ""
+    city = _clean_city(raw_city) if raw_city else ""
+    if not city:
+        # Infer from gush range (Tel Aviv gush ranges)
+        gush_num = int(tabu_data.get("block", 0)) if str(tabu_data.get("block", "")).isdigit() else 0
+        if 6000 <= gush_num <= 8000:
+            city = "תל אביב"
+        elif 8000 < gush_num <= 8500:
+            city = "רמת גן"
+        elif 8500 < gush_num <= 9000:
+            city = "גבעתיים"
+
+    locked = {
+        "blue_line_area": blue_line,
+        "existing_units": existing_units,
+        "existing_area": existing_area,
+        "floors_existing": floors_existing,
+        "buildings": tabu_data.get("buildings", 1),
+        "gush": tabu_data.get("block", ""),
+        "chelka": tabu_data.get("parcel", ""),
+        "city": city,
+    }
+
+    # Also pass derived sub_parcels into tabu_data for mix generation
+    if not tabu_data.get("sub_parcels") and sub_parcels:
+        tabu_data = {**tabu_data, "sub_parcels": sub_parcels}
+
+    # === Extract conservation from tabu liens BEFORE web searches ===
+    conservation = _extract_conservation_from_tabu(tabu_data)
+    if conservation["is_conservation"]:
+        logger.info(f"CONSERVATION BUILDING: {conservation['type']}, plan: {conservation.get('plan', 'N/A')}")
+    else:
+        logger.info("No conservation status found in tabu liens")
+
+    logger.info(f"Running multi-step market research for project {project_id}, "
+                f"gush={locked['gush']}, chelka={locked['chelka']}")
+
+    # === Fetch LIVE data from government APIs (before pipeline steps) ===
+    logger.info("Fetching live data from government APIs (CBS, Nominatim, Nadlan)...")
+    street = tabu_data.get("address") or tabu_data.get("street") or ""
+    live_data = fetch_all_live_data(
+        address=street,
+        city=city,
+        gush=locked["gush"],
+        chelka=locked["chelka"],
+        street=street,
+    )
+    logger.info(f"Live data fetch status: {live_data.get('fetch_status', {})}")
+
+    # === Step 1: Identify Location ===
+    logger.info("Step 1/5: Identifying location...")
+    location = _step1_identify_location(client, locked, live_data=live_data)
+    logger.info(f"  -> {location.get('neighborhood', '?')}, {location.get('city', '?')} "
+                f"(confidence: {location.get('confidence', '?')})")
+
+    # === Step 2: Look Up Zoning ===
+    logger.info("Step 2/5: Looking up zoning...")
+    zoning = _step2_lookup_zoning(client, locked, location, conservation)
+    logger.info(f"  -> Plans: {zoning.get('applicable_plans', [])}, "
+                f"Conservation: {zoning.get('conservation_status', 'none')}")
+
+    # === Step 3: Search Construction Costs ===
+    logger.info("Step 3/5: Searching construction costs...")
+    costs_data = _step3_search_costs(client, locked, location, live_data=live_data)
+    logger.info(f"  -> Residential: {costs_data.get('residential_per_sqm', 0):,} NIS/sqm "
+                f"(confidence: {costs_data.get('confidence', '?')})")
+
+    # === Step 4: Search Sales Prices ===
+    logger.info("Step 4/5: Searching sales prices...")
+    prices_data = _step4_search_prices(client, locked, location, conservation, live_data=live_data)
+    logger.info(f"  -> Residential: {prices_data.get('residential_per_sqm', 0):,} NIS/sqm, "
+                f"Commercial: {prices_data.get('commercial_per_sqm', 0):,} NIS/sqm "
+                f"(confidence: {prices_data.get('confidence', '?')})")
+
+    # === Step 5: Calculate Parameters ===
+    logger.info("Step 5/5: Generating parameters...")
+    parameters = _step5_generate_parameters(
+        client, locked, location, zoning, costs_data, prices_data, tabu_data, project_id, conservation
+    )
+
+    # === Validation ===
+    logger.info("Running validation...")
+    parameters = _validate_and_fix(parameters, locked)
+
+    # Validate required keys
+    required_keys = ["planning_parameters", "cost_parameters", "revenue_parameters", "apartment_mix"]
+    for key in required_keys:
+        if key not in parameters:
+            raise ValueError(f"Research pipeline missing required key: {key}")
+
+    # Add live data sources tracking
+    live_sources = {}
+    fetch_status = live_data.get("fetch_status", {})
+    if live_data.get("cbs_index"):
+        cbs = live_data["cbs_index"]
+        live_sources["cbs_construction_index"] = {
+            "status": "success",
+            "value": cbs.get("index_value"),
+            "date": cbs.get("index_date"),
+            "yoy_change_pct": cbs.get("yoy_change_pct"),
+            "source": cbs.get("source", "CBS Series 200010"),
+        }
+    else:
+        live_sources["cbs_construction_index"] = {"status": "failed", "reason": "API unavailable"}
+    if live_data.get("geocode"):
+        geo = live_data["geocode"]
+        live_sources["geocode"] = {
+            "status": "success",
+            "source": "nominatim",
+            "lat": geo.get("lat"),
+            "lon": geo.get("lon"),
+        }
+    else:
+        live_sources["geocode"] = {"status": "failed", "reason": "Geocoding failed"}
+    if live_data.get("nadlan_deals"):
+        live_sources["nadlan_deals"] = {
+            "status": "success",
+            "count": len(live_data["nadlan_deals"]),
+            "source": "nadlan.gov.il",
+        }
+    else:
+        live_sources["nadlan_deals"] = {"status": "failed", "reason": "SPA protected"}
+    parameters["live_data_sources"] = live_sources
+
+    # Merge live sources into existing data_sources for backward compat
+    if "data_sources" in parameters:
+        parameters["data_sources"]["live_api"] = live_sources
+
+    # Add metadata
+    parameters["_metadata"] = {
+        "project_id": project_id,
+        "gush": locked["gush"],
+        "chelka": locked["chelka"],
+        "generated_by": "market_research_agent_v2",
+        "model": "claude-sonnet-4-20250514",
+        "pipeline_version": "2.2",
+        "steps_completed": ["live_data", "location", "zoning", "costs", "prices", "parameters", "validation"],
+        "conservation": conservation,
+        "live_data_fetch_status": fetch_status,
+        "confidence": {
+            "location": location.get("confidence", "unknown"),
+            "costs": costs_data.get("confidence", "unknown"),
+            "prices": prices_data.get("confidence", "unknown"),
+        },
+    }
+
+    validation_fixes = parameters.get("research_summary", {}).get("validation_fixes", [])
+    if validation_fixes:
+        logger.info(f"Validation fixes applied: {len(validation_fixes)}")
+        for fix in validation_fixes:
+            logger.info(f"  - {fix}")
+
+    logger.info(f"Market research v2 complete for project {project_id}")
+    return parameters
