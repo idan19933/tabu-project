@@ -1,9 +1,9 @@
 /**
  * Agent 3: Calculation Agent — runs financial calculations + AI validation.
  */
-import { anthropic } from '../../../config/anthropic';
-import { logger } from '../../../config/logger';
-import { runCalculations, validateSimulationReady } from '../calculation.service';
+import { anthropic } from '../../config/anthropic';
+import { logger } from '../../config/logger';
+import { runCalculations, validateSimulationReady } from './calculation/calculation.service';
 
 const VALIDATION_SYSTEM_PROMPT = `You are a senior real estate financial analyst in Israel.
 

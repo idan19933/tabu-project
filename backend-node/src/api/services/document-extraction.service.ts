@@ -2,15 +2,15 @@
  * Agent 1: PDF Data Extraction using Anthropic SDK + forced tool use.
  * Supports tabu documents and planning/economic/general documents.
  */
-import { anthropic } from '../../../config/anthropic';
-import { logger } from '../../../config/logger';
-import { ExtractionStatus } from '../../../../prisma/generated/prisma/client';
-import { extractText } from '../../../utils/pdf';
-import { extractedParametersSchema, extractedTabuDataSchema } from '../../schemas/extraction.schema';
+import { anthropic } from '../../config/anthropic';
+import { logger } from '../../config/logger';
+import { ExtractionStatus } from '../../../prisma/generated/prisma/client';
+import { extractText } from '../../utils/pdf';
+import { extractedParametersSchema, extractedTabuDataSchema } from '../schemas/extraction.schema';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import * as documentDA from '../../data-access/document.data-access';
-import * as projectDA from '../../data-access/project.data-access';
-import * as paramDA from '../../data-access/parameter.data-access';
+import * as documentDA from '../data-access/document.data-access';
+import * as projectDA from '../data-access/project.data-access';
+import * as paramDA from '../data-access/parameter.data-access';
 
 const TABU_SYSTEM_PROMPT = `You are an expert at extracting data from Israeli Tabu (נסח טאבו) land registry documents.
 Extract all relevant property information including: block (גוש), parcel (חלקה), sub-parcel (תת-חלקה),

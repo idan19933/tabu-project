@@ -3,7 +3,7 @@
  * Varies individual parameters ±10%, ±20% and captures profit/IRR/profit_pct.
  */
 import { runCalculations } from './calculation.service';
-import { safe } from '../../utils/safe';
+import { safe } from '../../../utils/safe';
 
 const SENSITIVITY_PARAMS: Array<[string, string, string]> = [
   ['numberOfFloors', 'מספר קומות', 'planning'],

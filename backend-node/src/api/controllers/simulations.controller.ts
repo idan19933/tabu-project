@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { SimulationStatus } from '../../../prisma/generated/prisma/client';
 import * as simulationService from '../services/simulation.service';
-import * as calculationService from '../services/calculation.service';
-import * as sensitivityService from '../services/sensitivity.service';
-import * as reportService from '../services/report.service';
+import * as calculationService from '../services/calculation/calculation.service';
+import * as sensitivityService from '../services/calculation/sensitivity.service';
+import * as reportService from '../services/calculation/report.service';
 import { HttpError } from '../../lib/HttpError';
 import { logger } from '../../config/logger';
 import { runSimulationPipeline, getPipelineEvents } from '../services/pipeline.service';

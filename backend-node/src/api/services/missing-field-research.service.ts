@@ -1,8 +1,8 @@
 /**
  * Agent 2: Research Agent — searches uploaded documents for missing field values.
  */
-import { anthropic } from '../../../config/anthropic';
-import { logger } from '../../../config/logger';
+import { anthropic } from '../../config/anthropic';
+import { logger } from '../../config/logger';
 
 const RESEARCH_SYSTEM_PROMPT = `You are a research expert specialized in Israeli real estate feasibility documents.
 

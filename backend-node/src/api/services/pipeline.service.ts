@@ -5,11 +5,11 @@
 import { logger } from '../../config/logger';
 import { prisma } from '../../config/prisma';
 import { SimulationStatus } from '../../../prisma/generated/prisma/client';
-import { runDocumentExtraction } from './ai/document-extraction.service';
-import { researchMissingFields } from './ai/missing-field-research.service';
-import { runCalculationReview } from './ai/calculation-review.service';
-import { generateAlternativeScenarios } from './ai/scenario-analysis.service';
-import { validateSimulationReady } from './calculation.service';
+import { runDocumentExtraction } from './document-extraction.service';
+import { researchMissingFields } from './missing-field-research.service';
+import { runCalculationReview } from './calculation-review.service';
+import { generateAlternativeScenarios } from './scenario-analysis.service';
+import { validateSimulationReady } from './calculation/calculation.service';
 import { extractText } from '../../utils/pdf';
 import * as paramDA from '../data-access/parameter.data-access';
 import * as simulationDA from '../data-access/simulation.data-access';

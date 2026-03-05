@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import * as documentService from '../services/document.service';
-import { runDocumentExtraction } from '../services/ai/document-extraction.service';
+import { runDocumentExtraction } from '../services/document-extraction.service';
 import { logger } from '../../config/logger';
 import { param } from '../../utils/params';
 

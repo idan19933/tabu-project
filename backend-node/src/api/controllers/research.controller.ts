@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import * as projectDA from '../data-access/project.data-access';
 import * as simulationDA from '../data-access/simulation.data-access';
 import * as paramDA from '../data-access/parameter.data-access';
-import { runMarketResearch } from '../services/ai/market-research.service';
+import { runMarketResearch } from '../services/market-research.service';
 import { HttpError } from '../../lib/HttpError';
 import { logger } from '../../config/logger';
 import { safe } from '../../utils/safe';

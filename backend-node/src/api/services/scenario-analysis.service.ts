@@ -1,8 +1,8 @@
 /**
  * Agent 4: Alternatives Agent — generates 3 scenarios + optimization recommendations.
  */
-import { anthropic } from '../../../config/anthropic';
-import { logger } from '../../../config/logger';
+import { anthropic } from '../../config/anthropic';
+import { logger } from '../../config/logger';
 import {
   extractParams,
   calcProposedState,
@@ -10,9 +10,9 @@ import {
   calcCosts,
   calcRevenue,
   calcCashflowIrrNpv,
-} from '../calculation.service';
-import { safe } from '../../../utils/safe';
-import type { SimParams } from '../../../types/simulation';
+} from './calculation/calculation.service';
+import { safe } from '../../utils/safe';
+import type { SimParams } from '../../types/simulation';
 
 const OPTIMIZATION_SYSTEM_PROMPT = `You are a senior real estate investment advisor in Israel specializing in urban renewal (התחדשות עירונית).
 

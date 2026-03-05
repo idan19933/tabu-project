@@ -8,9 +8,9 @@
  * 4. Search sales prices in the area
  * 5. Calculate feasible parameters (pure math + validation)
  */
-import { anthropic } from '../../../config/anthropic';
-import { logger } from '../../../config/logger';
-import { safe } from '../../../utils/safe';
+import { anthropic } from '../../config/anthropic';
+import { logger } from '../../config/logger';
+import { safe } from '../../utils/safe';
 
 // Locked fields from tabu — never overwritten
 const LOCKED_FIELDS = ['blue_line_area', 'existing_units', 'existing_area', 'floors_existing'];

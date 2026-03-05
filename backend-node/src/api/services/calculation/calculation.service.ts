@@ -8,9 +8,9 @@
  *   Section 5: הכנסות + רווח (revenue + profit)
  */
 import { irr as calcIrr, npv as calcNpv } from 'financial';
-import { safe } from '../../utils/safe';
-import type { SimParams, ProposedState, BuildingProgram } from '../../types/simulation';
-import type { CostBreakdown, RevenueBreakdown, FinancialResults } from '../../types/calculation';
+import { safe } from '../../../utils/safe';
+import type { SimParams, ProposedState, BuildingProgram } from '../../../types/simulation';
+import type { CostBreakdown, RevenueBreakdown, FinancialResults } from '../../../types/calculation';
 
 // ─── Validation ──────────────────────────────────────────────────────────────
 
@@ -385,7 +385,7 @@ export function calcCosts(params: SimParams, proposed: ProposedState, program: B
     params.constructionTotalOverride > 0
       ? params.constructionTotalOverride
       : constructionResidential + constructionService + constructionPublic +
-        constructionBalcony + constructionDevelopment + parkingConstruction;
+      constructionBalcony + constructionDevelopment + parkingConstruction;
 
   // Resolve percentage-based costs
   const resolvedPlanningConsultants = resolveCost(params.planningConsultants, params.planningConsultantsPct, constructionCost);

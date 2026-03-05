@@ -5,7 +5,7 @@
  *   - Economic Report (דוח כלכלי): Sections 4-5
  */
 import ExcelJS from 'exceljs';
-import { safe } from '../../utils/safe';
+import { safe } from '../../../utils/safe';
 
 // ─── Style constants ─────────────────────────────────────────────────────────
 
