@@ -1,7 +1,8 @@
 """Parcel locator: resolve Israeli gush/chelka to WGS84 coordinates.
 
-Tries GovMap cadastral APIs first (which understand parcel IDs natively),
-falls back to Nominatim address-based geocoding.
+Tries address-based Nominatim geocoding first (most reliable when address
+is available from tabu data), with GovMap TldSearch as a secondary attempt
+for cases where no address is provided.
 """
 import logging
 import math
@@ -11,165 +12,96 @@ import httpx
 logger = logging.getLogger(__name__)
 
 GOVMAP_TLD_URL = "https://es.govmap.gov.il/TldSearch/api/DetailsByQuery"
-GOVMAP_LOCATE_URL = "https://ags.govmap.gov.il/Api/Controllers/GovmapApi/Locate"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-
-_TIMEOUT = 10
 
 
 def _itm_to_wgs84(x: float, y: float) -> tuple[float, float]:
     """Convert Israeli Transverse Mercator (ITM) to WGS84 (lat, lon).
 
     Approximate formula accurate to ~10m in central Israel.
-    Good enough for map centering purposes.
     """
     lat = 31.0 + (y - 550000) / 111000.0
     lng = 34.0 + (x - 100000) / (111000.0 * math.cos(math.radians(32)))
     return lat, lng
 
 
+async def _nominatim_query(client: httpx.AsyncClient, query: str) -> dict | None:
+    """Run a single Nominatim geocoding query."""
+    resp = await client.get(
+        NOMINATIM_URL,
+        params={"q": query, "format": "json", "limit": "1", "countrycodes": "il"},
+        headers={"User-Agent": "TabuApp/2.0 (feasibility-analysis)"},
+    )
+    if resp.status_code == 200:
+        results = resp.json()
+        if results and len(results) > 0:
+            item = results[0]
+            return {
+                "center": [float(item["lat"]), float(item["lon"])],
+                "display_name": item.get("display_name", ""),
+                "source": "nominatim",
+            }
+    return None
+
+
+async def _try_nominatim_address(address: str, city: str | None) -> dict | None:
+    """Geocode using the street address from the tabu document."""
+    query = address
+    if city and city not in address:
+        query = f"{address}, {city}"
+    if "ישראל" not in query and "Israel" not in query:
+        query = f"{query}, Israel"
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        result = await _nominatim_query(client, query)
+        if result:
+            result["method"] = "nominatim_address"
+            return result
+    return None
+
+
+async def _try_nominatim_city(city: str) -> dict | None:
+    """Fallback: geocode just the city name."""
+    query = city if ("Israel" in city or "ישראל" in city) else f"{city}, Israel"
+    async with httpx.AsyncClient(timeout=10) as client:
+        result = await _nominatim_query(client, query)
+        if result:
+            result["method"] = "nominatim_city"
+            return result
+    return None
+
+
 async def _try_govmap_tld(gush: str, chelka: str) -> dict | None:
-    """Method 1: GovMap TldSearch with numeric query (gush/chelka)."""
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        resp = await client.get(
-            GOVMAP_TLD_URL,
-            params={"query": f"{gush}/{chelka}", "lyrs": "27", "gid": "govmap"},
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, dict) and data.get("data"):
-                items = data["data"]
-                if isinstance(items, list) and len(items) > 0:
-                    item = items[0]
-                    x = item.get("X") or item.get("x")
-                    y = item.get("Y") or item.get("y")
-                    if x and y:
-                        lat, lon = _itm_to_wgs84(float(x), float(y))
-                        return {
-                            "center": [lat, lon],
-                            "display_name": item.get("ResultLable", f"גוש {gush} חלקה {chelka}"),
-                            "source": "govmap",
-                            "method": "govmap_tld",
-                        }
-    return None
+    """Try GovMap TldSearch API for parcel coordinates (cadastral layer)."""
+    queries = [f"{gush}/{chelka}", f"גוש {gush} חלקה {chelka}"]
 
-
-async def _try_govmap_tld_hebrew(gush: str, chelka: str) -> dict | None:
-    """Method 2: GovMap TldSearch with Hebrew query."""
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        resp = await client.get(
-            GOVMAP_TLD_URL,
-            params={
-                "query": f"גוש {gush} חלקה {chelka}",
-                "lyrs": "27",
-                "gid": "govmap",
-            },
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, dict) and data.get("data"):
-                items = data["data"]
-                if isinstance(items, list) and len(items) > 0:
-                    item = items[0]
-                    x = item.get("X") or item.get("x")
-                    y = item.get("Y") or item.get("y")
-                    if x and y:
-                        lat, lon = _itm_to_wgs84(float(x), float(y))
-                        return {
-                            "center": [lat, lon],
-                            "display_name": item.get("ResultLable", f"גוש {gush} חלקה {chelka}"),
-                            "source": "govmap",
-                            "method": "govmap_tld_hebrew",
-                        }
-    return None
-
-
-async def _try_govmap_locate(gush: str, chelka: str) -> dict | None:
-    """Method 3: GovMap Locate API (Type=5 for parcel lookup)."""
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        resp = await client.post(
-            GOVMAP_LOCATE_URL,
-            json={
-                "Type": 5,
-                "Ession": "",
-                "Gush": gush,
-                "Parcel": chelka,
-            },
-            headers={
-                "Content-Type": "application/json",
-                "Origin": "https://www.govmap.gov.il",
-                "Referer": "https://www.govmap.gov.il/",
-            },
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            if isinstance(data, dict) and data.get("data"):
-                result = data["data"]
-                x = result.get("X") or result.get("x")
-                y = result.get("Y") or result.get("y")
-                if x and y:
-                    lat, lon = _itm_to_wgs84(float(x), float(y))
-                    return {
-                        "center": [lat, lon],
-                        "display_name": f"גוש {gush} חלקה {chelka}",
-                        "source": "govmap",
-                        "method": "govmap_locate",
-                    }
-    return None
-
-
-async def _try_nominatim(
-    address: str | None, city: str | None, gush: str, chelka: str
-) -> dict | None:
-    """Method 4: Nominatim address-based geocoding (fallback)."""
-    queries = []
-
-    if address:
-        q = address
-        if city and city not in address:
-            q = f"{address}, {city}"
-        if "ישראל" not in q and "Israel" not in q:
-            q = f"{q}, Israel"
-        queries.append(q)
-
-    if city:
-        city_q = city if "Israel" in city or "ישראל" in city else f"{city}, Israel"
-        if city_q not in queries:
-            queries.append(city_q)
-
-    # Last resort: Hebrew gush/chelka terms
-    fallback = f"גוש {gush} חלקה {chelka}"
-    if city:
-        fallback = f"{fallback}, {city}"
-    fallback = f"{fallback}, Israel"
-    queries.append(fallback)
-
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=5) as client:
         for query in queries:
             try:
                 resp = await client.get(
-                    NOMINATIM_URL,
-                    params={
-                        "q": query,
-                        "format": "json",
-                        "limit": "1",
-                        "countrycodes": "il",
-                    },
-                    headers={"User-Agent": "TabuApp/2.0 (feasibility-analysis)"},
+                    GOVMAP_TLD_URL,
+                    params={"query": query, "lyrs": "27", "gid": "govmap"},
                 )
                 if resp.status_code == 200:
-                    results = resp.json()
-                    if results and len(results) > 0:
-                        item = results[0]
-                        return {
-                            "center": [float(item["lat"]), float(item["lon"])],
-                            "display_name": item.get("display_name", ""),
-                            "source": "nominatim",
-                            "method": "nominatim",
-                        }
-            except Exception as e:
-                logger.warning("Nominatim query '%s' failed: %s", query, e)
-
+                    data = resp.json()
+                    if isinstance(data, dict) and data.get("data"):
+                        items = data["data"]
+                        if isinstance(items, list) and len(items) > 0:
+                            item = items[0]
+                            x = item.get("X") or item.get("x")
+                            y = item.get("Y") or item.get("y")
+                            if x and y:
+                                lat, lon = _itm_to_wgs84(float(x), float(y))
+                                return {
+                                    "center": [lat, lon],
+                                    "display_name": item.get(
+                                        "ResultLable", f"גוש {gush} חלקה {chelka}"
+                                    ),
+                                    "source": "govmap",
+                                    "method": "govmap_tld",
+                                }
+            except Exception:
+                pass
     return None
 
 
@@ -181,28 +113,40 @@ async def locate_parcel(
 ) -> dict | None:
     """Locate an Israeli parcel by gush/chelka.
 
-    Tries methods in order:
-    1. GovMap TldSearch (numeric query)
-    2. GovMap TldSearch (Hebrew query)
-    3. GovMap Locate API
-    4. Nominatim address-based fallback
+    Priority order:
+    1. Nominatim with street address (most accurate when available)
+    2. GovMap TldSearch cadastral lookup (no address needed)
+    3. Nominatim with city only (rough fallback)
 
     Returns dict with center, display_name, source, method — or None.
     """
-    methods = [
-        ("govmap_tld", lambda: _try_govmap_tld(gush, chelka)),
-        ("govmap_tld_hebrew", lambda: _try_govmap_tld_hebrew(gush, chelka)),
-        ("govmap_locate", lambda: _try_govmap_locate(gush, chelka)),
-        ("nominatim", lambda: _try_nominatim(address, city, gush, chelka)),
-    ]
-
-    for name, method in methods:
+    # 1. Best: use the actual street address from tabu data
+    if address:
         try:
-            result = await method()
+            result = await _try_nominatim_address(address, city)
             if result:
-                logger.info("Parcel %s/%s located via %s", gush, chelka, name)
+                logger.info("Parcel %s/%s located via nominatim_address", gush, chelka)
                 return result
         except Exception as e:
-            logger.warning("Parcel locator method '%s' failed: %s", name, e)
+            logger.warning("Nominatim address geocoding failed: %s", e)
+
+    # 2. Try GovMap cadastral lookup (works without address)
+    try:
+        result = await _try_govmap_tld(gush, chelka)
+        if result:
+            logger.info("Parcel %s/%s located via govmap_tld", gush, chelka)
+            return result
+    except Exception as e:
+        logger.warning("GovMap TLD lookup failed: %s", e)
+
+    # 3. Fallback: geocode city name only
+    if city:
+        try:
+            result = await _try_nominatim_city(city)
+            if result:
+                logger.info("Parcel %s/%s located via nominatim_city (fallback)", gush, chelka)
+                return result
+        except Exception as e:
+            logger.warning("Nominatim city geocoding failed: %s", e)
 
     return None
