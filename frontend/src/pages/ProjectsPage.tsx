@@ -100,12 +100,12 @@ export default function ProjectsPage() {
                       <Calendar size={12} />
                       {new Date(p.created_at).toLocaleDateString('he-IL')}
                     </span>
-                    {p.simulations?.length > 0 && (
+                    {(p as unknown as { simulations?: unknown[] }).simulations?.length ? (
                       <span className="inline-flex items-center gap-1 text-xs text-primary-500 font-medium">
                         <FileText size={12} />
-                        {p.simulations.length} סימולציות
+                        {(p as unknown as { simulations: unknown[] }).simulations.length} סימולציות
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
                 <ArrowLeft size={16} className="text-slate-300 group-hover:text-primary-400 transition-colors mt-1 shrink-0" />
