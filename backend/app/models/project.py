@@ -24,6 +24,9 @@ class Project(Base):
     )
     tabu_data: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
 
+    # Cached geo location from GovMap WFS
+    geo_data: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
+
     # Market research agent output
     market_research_data: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
     market_research_status: Mapped[str | None] = mapped_column(

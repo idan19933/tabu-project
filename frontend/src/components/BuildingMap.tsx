@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Polygon, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { MapPin, AlertTriangle, Loader2 } from 'lucide-react';
+import { MapPin, AlertTriangle, Loader2, RefreshCw } from 'lucide-react';
 
 // Fix Leaflet default marker icon issue in bundlers
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -19,6 +19,7 @@ interface ParcelGeo {
   gush: string;
   chelka: string;
   source?: string;
+  method?: string;
 }
 
 interface BuildingMapProps {
@@ -46,14 +47,13 @@ export default function BuildingMap({ gush, chelka, address, city }: BuildingMap
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchLocation = useCallback(() => {
     if (!gush || !chelka) {
       setLoading(false);
       setError('חסר גוש/חלקה');
       return;
     }
 
-    let cancelled = false;
     setLoading(true);
     setError(null);
 
@@ -71,17 +71,19 @@ export default function BuildingMap({ gush, chelka, address, city }: BuildingMap
         return res.json();
       })
       .then((geo) => {
-        if (!cancelled) setData(geo);
+        setData(geo);
       })
       .catch((err) => {
-        if (!cancelled) setError(err.message);
+        setError(err.message);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       });
+  }, [gush, chelka, address, city]);
 
-    return () => { cancelled = true; };
-  }, [gush, chelka]);
+  useEffect(() => {
+    fetchLocation();
+  }, [fetchLocation]);
 
   if (loading) {
     return (
@@ -105,6 +107,7 @@ export default function BuildingMap({ gush, chelka, address, city }: BuildingMap
 
   const center: [number, number] = data.center;
   const polygon: [number, number][] | undefined = data.polygon;
+  const isLowConfidence = data.method === 'nominatim_city';
 
   return (
     <div className="rounded-xl overflow-hidden border border-slate-200 shadow-sm">
@@ -117,6 +120,23 @@ export default function BuildingMap({ gush, chelka, address, city }: BuildingMap
           <span className="text-xs text-blue-200 mr-auto">{address}</span>
         )}
       </div>
+
+      {isLowConfidence && (
+        <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-2 flex items-center gap-2 text-right" dir="rtl">
+          <AlertTriangle size={14} className="text-yellow-600 shrink-0" />
+          <span className="text-xs text-yellow-800">
+            לא הצלחנו לאתר את המיקום המדויק של החלקה. המפה מציגה את מרכז העיר בלבד.
+          </span>
+          <button
+            onClick={fetchLocation}
+            className="mr-auto flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 shrink-0"
+          >
+            <RefreshCw size={12} />
+            נסה שוב
+          </button>
+        </div>
+      )}
+
       <div style={{ height: 350 }}>
         <MapContainer
           center={center}

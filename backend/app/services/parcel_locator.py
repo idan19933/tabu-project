@@ -3,6 +3,7 @@
 Primary method: GovMap Open WFS (free, public, returns exact parcel polygons).
 Fallback: Nominatim address-based geocoding.
 """
+import asyncio
 import logging
 
 import httpx
@@ -13,12 +14,8 @@ GOVMAP_WFS_URL = "https://open.govmap.gov.il/geoserver/opendata/wfs"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 
 
-async def _try_govmap_wfs(gush: str, chelka: str) -> dict | None:
-    """Query GovMap Open WFS for exact parcel polygon centroid.
-
-    Uses the PARCEL_ALL layer which contains all Israeli cadastral parcels.
-    Returns WGS84 coordinates directly (no ITM conversion needed).
-    """
+async def _govmap_wfs_single(gush: str, chelka: str) -> dict | None:
+    """Single GovMap WFS request. Returns parsed result or None."""
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(
             GOVMAP_WFS_URL,
@@ -45,7 +42,6 @@ async def _try_govmap_wfs(gush: str, chelka: str) -> dict | None:
         geom = feature.get("geometry", {})
         props = feature.get("properties", {})
 
-        # Compute centroid from polygon coordinates
         coords = geom.get("coordinates", [])
         if not coords:
             return None
@@ -70,6 +66,27 @@ async def _try_govmap_wfs(gush: str, chelka: str) -> dict | None:
             "source": "govmap_wfs",
             "method": "govmap_wfs",
         }
+
+
+async def _try_govmap_wfs(gush: str, chelka: str, max_retries: int = 3) -> dict | None:
+    """Query GovMap WFS with retry + backoff. GovMap is intermittent."""
+    for attempt in range(max_retries):
+        try:
+            result = await _govmap_wfs_single(gush, chelka)
+            if result:
+                logger.info("GovMap WFS success on attempt %d for %s/%s", attempt + 1, gush, chelka)
+                return result
+        except Exception as e:
+            wait = (attempt + 1) * 1.5
+            logger.warning(
+                "GovMap WFS attempt %d/%d failed for %s/%s: %s. Retrying in %.1fs...",
+                attempt + 1, max_retries, gush, chelka, e, wait,
+            )
+            if attempt < max_retries - 1:
+                await asyncio.sleep(wait)
+
+    logger.error("GovMap WFS failed all %d attempts for %s/%s", max_retries, gush, chelka)
+    return None
 
 
 async def _try_nominatim(address: str, city: str | None) -> dict | None:
@@ -108,36 +125,36 @@ async def locate_parcel(
     """Locate an Israeli parcel by gush/chelka.
 
     Priority:
-    1. GovMap Open WFS — exact parcel polygon centroid (works for any gush/chelka)
+    1. GovMap Open WFS — exact parcel polygon centroid (3 retries)
     2. Nominatim address geocoding — fallback when WFS unavailable
+    3. Nominatim city geocoding — last resort
     """
-    # 1. GovMap WFS: exact cadastral lookup (no address needed)
+    # 1. GovMap WFS with retry
     try:
         result = await _try_govmap_wfs(gush, chelka)
         if result:
-            logger.info("Parcel %s/%s located via govmap_wfs", gush, chelka)
             return result
     except Exception as e:
         logger.warning("GovMap WFS lookup failed: %s", e)
 
-    # 2. Nominatim fallback with address
+    # 2. Nominatim with address
     if address:
         try:
             result = await _try_nominatim(address, city)
             if result:
-                logger.info("Parcel %s/%s located via nominatim", gush, chelka)
+                logger.info("Parcel %s/%s located via nominatim_address", gush, chelka)
                 return result
         except Exception as e:
-            logger.warning("Nominatim geocoding failed: %s", e)
+            logger.warning("Nominatim address geocoding failed: %s", e)
 
-    # 3. Nominatim fallback with city only
+    # 3. Nominatim with city only (low confidence)
     if city:
         try:
             q = city if ("Israel" in city or "ישראל" in city) else f"{city}, Israel"
             result = await _try_nominatim(q, None)
             if result:
                 result["method"] = "nominatim_city"
-                logger.info("Parcel %s/%s located via nominatim_city", gush, chelka)
+                logger.info("Parcel %s/%s located via nominatim_city (low confidence)", gush, chelka)
                 return result
         except Exception as e:
             logger.warning("Nominatim city geocoding failed: %s", e)
