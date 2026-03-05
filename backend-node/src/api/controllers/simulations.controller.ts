@@ -188,7 +188,8 @@ export async function agentStream(req: Request, res: Response, next: NextFunctio
       }
 
       const lastEvent = events[events.length - 1];
-      if (lastEvent?.status === 'completed' || lastEvent?.status === 'failed') {
+      const isFinalStep = lastEvent?.step === 'alternatives' || lastEvent?.step === 'pipeline';
+      if (isFinalStep && (lastEvent?.status === 'completed' || lastEvent?.status === 'failed')) {
         res.write(`event: pipeline_complete\ndata: ${JSON.stringify(lastEvent)}\n\n`);
         clearInterval(interval);
         res.end();

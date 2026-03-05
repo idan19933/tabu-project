@@ -31,6 +31,7 @@ export type DocumentMinAggregateOutputType = {
   documentType: string | null
   docType: string | null
   filePath: string | null
+  extractedText: string | null
   uploadDate: Date | null
   extractionStatus: $Enums.ExtractionStatus | null
   extractionError: string | null
@@ -43,6 +44,7 @@ export type DocumentMaxAggregateOutputType = {
   documentType: string | null
   docType: string | null
   filePath: string | null
+  extractedText: string | null
   uploadDate: Date | null
   extractionStatus: $Enums.ExtractionStatus | null
   extractionError: string | null
@@ -55,6 +57,7 @@ export type DocumentCountAggregateOutputType = {
   documentType: number
   docType: number
   filePath: number
+  extractedText: number
   uploadDate: number
   extractionStatus: number
   extractionError: number
@@ -70,6 +73,7 @@ export type DocumentMinAggregateInputType = {
   documentType?: true
   docType?: true
   filePath?: true
+  extractedText?: true
   uploadDate?: true
   extractionStatus?: true
   extractionError?: true
@@ -82,6 +86,7 @@ export type DocumentMaxAggregateInputType = {
   documentType?: true
   docType?: true
   filePath?: true
+  extractedText?: true
   uploadDate?: true
   extractionStatus?: true
   extractionError?: true
@@ -94,6 +99,7 @@ export type DocumentCountAggregateInputType = {
   documentType?: true
   docType?: true
   filePath?: true
+  extractedText?: true
   uploadDate?: true
   extractionStatus?: true
   extractionError?: true
@@ -179,7 +185,8 @@ export type DocumentGroupByOutputType = {
   simulationId: string | null
   documentType: string
   docType: string | null
-  filePath: string
+  filePath: string | null
+  extractedText: string | null
   uploadDate: Date
   extractionStatus: $Enums.ExtractionStatus
   extractionError: string | null
@@ -213,7 +220,8 @@ export type DocumentWhereInput = {
   simulationId?: Prisma.UuidNullableFilter<"Document"> | string | null
   documentType?: Prisma.StringFilter<"Document"> | string
   docType?: Prisma.StringNullableFilter<"Document"> | string | null
-  filePath?: Prisma.StringFilter<"Document"> | string
+  filePath?: Prisma.StringNullableFilter<"Document"> | string | null
+  extractedText?: Prisma.StringNullableFilter<"Document"> | string | null
   uploadDate?: Prisma.DateTimeFilter<"Document"> | Date | string
   extractionStatus?: Prisma.EnumExtractionStatusFilter<"Document"> | $Enums.ExtractionStatus
   extractionError?: Prisma.StringNullableFilter<"Document"> | string | null
@@ -228,7 +236,8 @@ export type DocumentOrderByWithRelationInput = {
   simulationId?: Prisma.SortOrderInput | Prisma.SortOrder
   documentType?: Prisma.SortOrder
   docType?: Prisma.SortOrderInput | Prisma.SortOrder
-  filePath?: Prisma.SortOrder
+  filePath?: Prisma.SortOrderInput | Prisma.SortOrder
+  extractedText?: Prisma.SortOrderInput | Prisma.SortOrder
   uploadDate?: Prisma.SortOrder
   extractionStatus?: Prisma.SortOrder
   extractionError?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -246,7 +255,8 @@ export type DocumentWhereUniqueInput = Prisma.AtLeast<{
   simulationId?: Prisma.UuidNullableFilter<"Document"> | string | null
   documentType?: Prisma.StringFilter<"Document"> | string
   docType?: Prisma.StringNullableFilter<"Document"> | string | null
-  filePath?: Prisma.StringFilter<"Document"> | string
+  filePath?: Prisma.StringNullableFilter<"Document"> | string | null
+  extractedText?: Prisma.StringNullableFilter<"Document"> | string | null
   uploadDate?: Prisma.DateTimeFilter<"Document"> | Date | string
   extractionStatus?: Prisma.EnumExtractionStatusFilter<"Document"> | $Enums.ExtractionStatus
   extractionError?: Prisma.StringNullableFilter<"Document"> | string | null
@@ -261,7 +271,8 @@ export type DocumentOrderByWithAggregationInput = {
   simulationId?: Prisma.SortOrderInput | Prisma.SortOrder
   documentType?: Prisma.SortOrder
   docType?: Prisma.SortOrderInput | Prisma.SortOrder
-  filePath?: Prisma.SortOrder
+  filePath?: Prisma.SortOrderInput | Prisma.SortOrder
+  extractedText?: Prisma.SortOrderInput | Prisma.SortOrder
   uploadDate?: Prisma.SortOrder
   extractionStatus?: Prisma.SortOrder
   extractionError?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -280,7 +291,8 @@ export type DocumentScalarWhereWithAggregatesInput = {
   simulationId?: Prisma.UuidNullableWithAggregatesFilter<"Document"> | string | null
   documentType?: Prisma.StringWithAggregatesFilter<"Document"> | string
   docType?: Prisma.StringNullableWithAggregatesFilter<"Document"> | string | null
-  filePath?: Prisma.StringWithAggregatesFilter<"Document"> | string
+  filePath?: Prisma.StringNullableWithAggregatesFilter<"Document"> | string | null
+  extractedText?: Prisma.StringNullableWithAggregatesFilter<"Document"> | string | null
   uploadDate?: Prisma.DateTimeWithAggregatesFilter<"Document"> | Date | string
   extractionStatus?: Prisma.EnumExtractionStatusWithAggregatesFilter<"Document"> | $Enums.ExtractionStatus
   extractionError?: Prisma.StringNullableWithAggregatesFilter<"Document"> | string | null
@@ -291,7 +303,8 @@ export type DocumentCreateInput = {
   id?: string
   documentType: string
   docType?: string | null
-  filePath: string
+  filePath?: string | null
+  extractedText?: string | null
   uploadDate?: Date | string
   extractionStatus?: $Enums.ExtractionStatus
   extractionError?: string | null
@@ -306,7 +319,8 @@ export type DocumentUncheckedCreateInput = {
   simulationId?: string | null
   documentType: string
   docType?: string | null
-  filePath: string
+  filePath?: string | null
+  extractedText?: string | null
   uploadDate?: Date | string
   extractionStatus?: $Enums.ExtractionStatus
   extractionError?: string | null
@@ -317,7 +331,8 @@ export type DocumentUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   documentType?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  filePath?: Prisma.StringFieldUpdateOperationsInput | string
+  filePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  extractedText?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   uploadDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   extractionStatus?: Prisma.EnumExtractionStatusFieldUpdateOperationsInput | $Enums.ExtractionStatus
   extractionError?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -332,7 +347,8 @@ export type DocumentUncheckedUpdateInput = {
   simulationId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   documentType?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  filePath?: Prisma.StringFieldUpdateOperationsInput | string
+  filePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  extractedText?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   uploadDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   extractionStatus?: Prisma.EnumExtractionStatusFieldUpdateOperationsInput | $Enums.ExtractionStatus
   extractionError?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -345,7 +361,8 @@ export type DocumentCreateManyInput = {
   simulationId?: string | null
   documentType: string
   docType?: string | null
-  filePath: string
+  filePath?: string | null
+  extractedText?: string | null
   uploadDate?: Date | string
   extractionStatus?: $Enums.ExtractionStatus
   extractionError?: string | null
@@ -356,7 +373,8 @@ export type DocumentUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   documentType?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  filePath?: Prisma.StringFieldUpdateOperationsInput | string
+  filePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  extractedText?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   uploadDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   extractionStatus?: Prisma.EnumExtractionStatusFieldUpdateOperationsInput | $Enums.ExtractionStatus
   extractionError?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -369,7 +387,8 @@ export type DocumentUncheckedUpdateManyInput = {
   simulationId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   documentType?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  filePath?: Prisma.StringFieldUpdateOperationsInput | string
+  filePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  extractedText?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   uploadDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   extractionStatus?: Prisma.EnumExtractionStatusFieldUpdateOperationsInput | $Enums.ExtractionStatus
   extractionError?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -393,6 +412,7 @@ export type DocumentCountOrderByAggregateInput = {
   documentType?: Prisma.SortOrder
   docType?: Prisma.SortOrder
   filePath?: Prisma.SortOrder
+  extractedText?: Prisma.SortOrder
   uploadDate?: Prisma.SortOrder
   extractionStatus?: Prisma.SortOrder
   extractionError?: Prisma.SortOrder
@@ -406,6 +426,7 @@ export type DocumentMaxOrderByAggregateInput = {
   documentType?: Prisma.SortOrder
   docType?: Prisma.SortOrder
   filePath?: Prisma.SortOrder
+  extractedText?: Prisma.SortOrder
   uploadDate?: Prisma.SortOrder
   extractionStatus?: Prisma.SortOrder
   extractionError?: Prisma.SortOrder
@@ -418,6 +439,7 @@ export type DocumentMinOrderByAggregateInput = {
   documentType?: Prisma.SortOrder
   docType?: Prisma.SortOrder
   filePath?: Prisma.SortOrder
+  extractedText?: Prisma.SortOrder
   uploadDate?: Prisma.SortOrder
   extractionStatus?: Prisma.SortOrder
   extractionError?: Prisma.SortOrder
@@ -515,7 +537,8 @@ export type DocumentCreateWithoutProjectInput = {
   id?: string
   documentType: string
   docType?: string | null
-  filePath: string
+  filePath?: string | null
+  extractedText?: string | null
   uploadDate?: Date | string
   extractionStatus?: $Enums.ExtractionStatus
   extractionError?: string | null
@@ -528,7 +551,8 @@ export type DocumentUncheckedCreateWithoutProjectInput = {
   simulationId?: string | null
   documentType: string
   docType?: string | null
-  filePath: string
+  filePath?: string | null
+  extractedText?: string | null
   uploadDate?: Date | string
   extractionStatus?: $Enums.ExtractionStatus
   extractionError?: string | null
@@ -570,7 +594,8 @@ export type DocumentScalarWhereInput = {
   simulationId?: Prisma.UuidNullableFilter<"Document"> | string | null
   documentType?: Prisma.StringFilter<"Document"> | string
   docType?: Prisma.StringNullableFilter<"Document"> | string | null
-  filePath?: Prisma.StringFilter<"Document"> | string
+  filePath?: Prisma.StringNullableFilter<"Document"> | string | null
+  extractedText?: Prisma.StringNullableFilter<"Document"> | string | null
   uploadDate?: Prisma.DateTimeFilter<"Document"> | Date | string
   extractionStatus?: Prisma.EnumExtractionStatusFilter<"Document"> | $Enums.ExtractionStatus
   extractionError?: Prisma.StringNullableFilter<"Document"> | string | null
@@ -581,7 +606,8 @@ export type DocumentCreateWithoutSimulationInput = {
   id?: string
   documentType: string
   docType?: string | null
-  filePath: string
+  filePath?: string | null
+  extractedText?: string | null
   uploadDate?: Date | string
   extractionStatus?: $Enums.ExtractionStatus
   extractionError?: string | null
@@ -594,7 +620,8 @@ export type DocumentUncheckedCreateWithoutSimulationInput = {
   projectId: string
   documentType: string
   docType?: string | null
-  filePath: string
+  filePath?: string | null
+  extractedText?: string | null
   uploadDate?: Date | string
   extractionStatus?: $Enums.ExtractionStatus
   extractionError?: string | null
@@ -632,7 +659,8 @@ export type DocumentCreateManyProjectInput = {
   simulationId?: string | null
   documentType: string
   docType?: string | null
-  filePath: string
+  filePath?: string | null
+  extractedText?: string | null
   uploadDate?: Date | string
   extractionStatus?: $Enums.ExtractionStatus
   extractionError?: string | null
@@ -643,7 +671,8 @@ export type DocumentUpdateWithoutProjectInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   documentType?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  filePath?: Prisma.StringFieldUpdateOperationsInput | string
+  filePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  extractedText?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   uploadDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   extractionStatus?: Prisma.EnumExtractionStatusFieldUpdateOperationsInput | $Enums.ExtractionStatus
   extractionError?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -656,7 +685,8 @@ export type DocumentUncheckedUpdateWithoutProjectInput = {
   simulationId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   documentType?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  filePath?: Prisma.StringFieldUpdateOperationsInput | string
+  filePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  extractedText?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   uploadDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   extractionStatus?: Prisma.EnumExtractionStatusFieldUpdateOperationsInput | $Enums.ExtractionStatus
   extractionError?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -668,7 +698,8 @@ export type DocumentUncheckedUpdateManyWithoutProjectInput = {
   simulationId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   documentType?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  filePath?: Prisma.StringFieldUpdateOperationsInput | string
+  filePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  extractedText?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   uploadDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   extractionStatus?: Prisma.EnumExtractionStatusFieldUpdateOperationsInput | $Enums.ExtractionStatus
   extractionError?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -680,7 +711,8 @@ export type DocumentCreateManySimulationInput = {
   projectId: string
   documentType: string
   docType?: string | null
-  filePath: string
+  filePath?: string | null
+  extractedText?: string | null
   uploadDate?: Date | string
   extractionStatus?: $Enums.ExtractionStatus
   extractionError?: string | null
@@ -691,7 +723,8 @@ export type DocumentUpdateWithoutSimulationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   documentType?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  filePath?: Prisma.StringFieldUpdateOperationsInput | string
+  filePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  extractedText?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   uploadDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   extractionStatus?: Prisma.EnumExtractionStatusFieldUpdateOperationsInput | $Enums.ExtractionStatus
   extractionError?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -704,7 +737,8 @@ export type DocumentUncheckedUpdateWithoutSimulationInput = {
   projectId?: Prisma.StringFieldUpdateOperationsInput | string
   documentType?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  filePath?: Prisma.StringFieldUpdateOperationsInput | string
+  filePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  extractedText?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   uploadDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   extractionStatus?: Prisma.EnumExtractionStatusFieldUpdateOperationsInput | $Enums.ExtractionStatus
   extractionError?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -716,7 +750,8 @@ export type DocumentUncheckedUpdateManyWithoutSimulationInput = {
   projectId?: Prisma.StringFieldUpdateOperationsInput | string
   documentType?: Prisma.StringFieldUpdateOperationsInput | string
   docType?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  filePath?: Prisma.StringFieldUpdateOperationsInput | string
+  filePath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  extractedText?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   uploadDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   extractionStatus?: Prisma.EnumExtractionStatusFieldUpdateOperationsInput | $Enums.ExtractionStatus
   extractionError?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -732,6 +767,7 @@ export type DocumentSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   documentType?: boolean
   docType?: boolean
   filePath?: boolean
+  extractedText?: boolean
   uploadDate?: boolean
   extractionStatus?: boolean
   extractionError?: boolean
@@ -747,6 +783,7 @@ export type DocumentSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exte
   documentType?: boolean
   docType?: boolean
   filePath?: boolean
+  extractedText?: boolean
   uploadDate?: boolean
   extractionStatus?: boolean
   extractionError?: boolean
@@ -762,6 +799,7 @@ export type DocumentSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exte
   documentType?: boolean
   docType?: boolean
   filePath?: boolean
+  extractedText?: boolean
   uploadDate?: boolean
   extractionStatus?: boolean
   extractionError?: boolean
@@ -777,13 +815,14 @@ export type DocumentSelectScalar = {
   documentType?: boolean
   docType?: boolean
   filePath?: boolean
+  extractedText?: boolean
   uploadDate?: boolean
   extractionStatus?: boolean
   extractionError?: boolean
   extractedData?: boolean
 }
 
-export type DocumentOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectId" | "simulationId" | "documentType" | "docType" | "filePath" | "uploadDate" | "extractionStatus" | "extractionError" | "extractedData", ExtArgs["result"]["document"]>
+export type DocumentOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "projectId" | "simulationId" | "documentType" | "docType" | "filePath" | "extractedText" | "uploadDate" | "extractionStatus" | "extractionError" | "extractedData", ExtArgs["result"]["document"]>
 export type DocumentInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   project?: boolean | Prisma.ProjectDefaultArgs<ExtArgs>
   simulation?: boolean | Prisma.Document$simulationArgs<ExtArgs>
@@ -809,7 +848,8 @@ export type $DocumentPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     simulationId: string | null
     documentType: string
     docType: string | null
-    filePath: string
+    filePath: string | null
+    extractedText: string | null
     uploadDate: Date
     extractionStatus: $Enums.ExtractionStatus
     extractionError: string | null
@@ -1245,6 +1285,7 @@ export interface DocumentFieldRefs {
   readonly documentType: Prisma.FieldRef<"Document", 'String'>
   readonly docType: Prisma.FieldRef<"Document", 'String'>
   readonly filePath: Prisma.FieldRef<"Document", 'String'>
+  readonly extractedText: Prisma.FieldRef<"Document", 'String'>
   readonly uploadDate: Prisma.FieldRef<"Document", 'DateTime'>
   readonly extractionStatus: Prisma.FieldRef<"Document", 'ExtractionStatus'>
   readonly extractionError: Prisma.FieldRef<"Document", 'String'>

@@ -8,7 +8,6 @@ const envSchema = z.object({
   DIRECT_URL: z.string(),
   ANTHROPIC_API_KEY: z.string().default(''),
   PORT: z.string().default('8000'),
-  UPLOAD_DIR: z.string().default('uploads'),
   CORS_ORIGIN: z.string().optional(),
   NODE_ENV: z.string().default('development'),
 });

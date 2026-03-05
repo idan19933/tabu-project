@@ -10,7 +10,6 @@ import { researchMissingFields } from './missing-field-research.service';
 import { runCalculationReview } from './calculation-review.service';
 import { generateAlternativeScenarios } from './scenario-analysis.service';
 import { validateSimulationReady } from './calculation/calculation.service';
-import { extractText } from '../../utils/pdf';
 import * as paramDA from '../data-access/parameter.data-access';
 import * as simulationDA from '../data-access/simulation.data-access';
 import type { AgentEvent, AgentStatus } from '../../types/agent';
@@ -102,11 +101,8 @@ async function runResearchStep(simId: string) {
 
   const documentTexts: Array<{ filename: string; text: string }> = [];
   for (const doc of docs) {
-    try {
-      const text = await extractText(doc.filePath);
-      documentTexts.push({ filename: doc.filePath, text });
-    } catch {
-      logger.warn(`Could not extract text from ${doc.filePath}`);
+    if (doc.extractedText) {
+      documentTexts.push({ filename: doc.id, text: doc.extractedText });
     }
   }
 

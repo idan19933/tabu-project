@@ -24,7 +24,7 @@ export function findById(id: string) {
 export function create(data: {
   projectId: string;
   documentType: string;
-  filePath: string;
+  extractedText?: string;
   simulationId?: string;
 }) {
   return prisma.document.create({ data });

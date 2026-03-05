@@ -5,7 +5,6 @@
 import { anthropic } from '../../config/anthropic';
 import { logger } from '../../config/logger';
 import { ExtractionStatus } from '../../../prisma/generated/prisma/client';
-import { extractText } from '../../utils/pdf';
 import { extractedParametersSchema, extractedTabuDataSchema } from '../schemas/extraction.schema';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import * as documentDA from '../data-access/document.data-access';
@@ -175,7 +174,7 @@ export async function runDocumentExtraction(
     const doc = await documentDA.findById(docId);
     if (!doc) throw new Error('Document not found');
 
-    const text = await extractText(doc.filePath);
+    const text = doc.extractedText ?? '';
     if (!text.trim()) {
       await documentDA.updateExtraction(docId, {
         extractionStatus: ExtractionStatus.Failed,

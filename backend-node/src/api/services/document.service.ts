@@ -1,7 +1,5 @@
-import path from 'path';
-import fs from 'fs/promises';
-import { env } from '../../config/env';
 import * as documentDA from '../data-access/document.data-access';
+import { extractTextFromBuffer } from '../../utils/pdf';
 import { HttpError } from '../../lib/HttpError';
 
 export async function saveUpload(
@@ -10,19 +8,12 @@ export async function saveUpload(
   documentType: string,
   simulationId?: string
 ) {
-  // Ensure upload directory exists
-  await fs.mkdir(env.UPLOAD_DIR, { recursive: true });
-
-  const filename = `${projectId}_${Date.now()}_${file.originalname}`;
-  const filePath = path.join(env.UPLOAD_DIR, filename);
-
-  // Move file from multer temp to upload dir
-  await fs.rename(file.path, filePath);
+  const extractedText = await extractTextFromBuffer(file.buffer);
 
   return documentDA.create({
     projectId,
     documentType,
-    filePath,
+    extractedText,
     simulationId,
   });
 }

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import * as controller from '../controllers/documents.controller';
 
-const upload = multer({ dest: process.env.UPLOAD_DIR || 'uploads/' });
+const upload = multer({ storage: multer.memoryStorage() });
 
 export const documentsRouter = Router();
 
