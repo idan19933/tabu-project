@@ -1,10 +1,31 @@
+/**
+ * @module simulation.service
+ * Business-logic layer for simulation lifecycle management.
+ *
+ * Responsibilities:
+ *  - CRUD operations on simulations and their nested parameters
+ *  - Field-name mapping from snake_case API bodies to camelCase Prisma models
+ *  - Delegating to the calculation engine and persisting results
+ *  - Cloning simulations (deep copy of all parameter tables)
+ *  - Triggering the 4-step AI agent pipeline asynchronously
+ *  - Delta analysis comparing current vs. previous calculation results
+ */
 import { SimulationStatus } from '../../../prisma/generated/prisma/client';
 import * as simulationDA from '../data-access/simulation.data-access';
 import * as paramDA from '../data-access/parameter.data-access';
+import * as calculationService from './calculation/calculation.service';
+import { runSimulationPipeline } from './pipeline.service';
 import { HttpError } from '../../lib/HttpError';
+import { logger } from '../../config/logger';
 import { prisma } from '../../config/prisma';
 
-// Snake_case → camelCase field mapping for planning parameters
+/**
+ * Convert snake_case planning parameter keys (as sent by the API) to the
+ * camelCase field names expected by the Prisma `PlanningParameter` model.
+ *
+ * @param data - Raw object with snake_case keys from the request body.
+ * @returns A new object with keys mapped to camelCase, or `undefined` if `data` is falsy.
+ */
 function mapPlanningToCamel(data: any) {
   if (!data) return undefined;
   const map: Record<string, string> = {
@@ -39,7 +60,13 @@ function mapPlanningToCamel(data: any) {
   return result;
 }
 
-// Snake_case → camelCase field mapping for cost parameters
+/**
+ * Convert snake_case cost parameter keys (as sent by the API) to the
+ * camelCase field names expected by the Prisma `CostParameter` model.
+ *
+ * @param data - Raw object with snake_case keys from the request body.
+ * @returns A new object with keys mapped to camelCase, or `undefined` if `data` is falsy.
+ */
 function mapCostToCamel(data: any) {
   if (!data) return undefined;
   const map: Record<string, string> = {
@@ -92,7 +119,13 @@ function mapCostToCamel(data: any) {
   return result;
 }
 
-// Snake_case → camelCase field mapping for revenue parameters
+/**
+ * Convert snake_case revenue parameter keys (as sent by the API) to the
+ * camelCase field names expected by the Prisma `RevenueParameter` model.
+ *
+ * @param data - Raw object with snake_case keys from the request body.
+ * @returns A new object with keys mapped to camelCase, or `undefined` if `data` is falsy.
+ */
 function mapRevenueToCamel(data: any) {
   if (!data) return undefined;
   const map: Record<string, string> = {
@@ -112,6 +145,12 @@ function mapRevenueToCamel(data: any) {
   return result;
 }
 
+/**
+ * Convert snake_case legacy economic parameter keys to camelCase.
+ *
+ * @param data - Raw object with snake_case keys from the request body.
+ * @returns A new object with keys mapped to camelCase, or `undefined` if `data` is falsy.
+ */
 function mapEconomicToCamel(data: any) {
   if (!data) return undefined;
   const map: Record<string, string> = {
@@ -132,6 +171,12 @@ function mapEconomicToCamel(data: any) {
   return result;
 }
 
+/**
+ * Normalise apartment-mix items from snake_case API shape to camelCase for Prisma.
+ *
+ * @param items - Array of mix items with snake_case keys.
+ * @returns Array of mix items with camelCase keys.
+ */
 function mapMixToCamel(items: any[]) {
   return items.map((item) => ({
     apartmentType: item.apartment_type,
@@ -140,20 +185,51 @@ function mapMixToCamel(items: any[]) {
   }));
 }
 
+/**
+ * List all simulations for a project (summary view — no parameter relations).
+ *
+ * @param projectId - The UUID of the parent project.
+ * @returns A promise resolving to an array of simulation summaries.
+ */
 export async function listByProject(projectId: string) {
   return simulationDA.findByProject(projectId);
 }
 
+/**
+ * Fetch a complete simulation by ID, including all parameter relations.
+ *
+ * @param id - The UUID of the simulation.
+ * @returns A promise resolving to the full Simulation record.
+ * @throws {HttpError} 404 if no simulation exists with the given ID.
+ */
 export async function getById(id: string) {
   const sim = await simulationDA.findById(id);
   if (!sim) throw new HttpError(404, 'Simulation not found');
   return sim;
 }
 
+/**
+ * Create a new simulation in `Draft` status for a project.
+ *
+ * @param projectId - The UUID of the parent project.
+ * @param versionName - A human-readable version label for this simulation.
+ * @returns A promise resolving to the newly created Simulation record.
+ */
 export async function create(projectId: string, versionName: string) {
   return simulationDA.create(projectId, versionName);
 }
 
+/**
+ * Update any combination of simulation fields and nested parameter tables.
+ *
+ * Each parameter section is upserted independently; omitting a key leaves
+ * the existing data untouched. Apartment mix is always fully replaced when provided.
+ *
+ * @param id - The UUID of the simulation to update.
+ * @param body - Partial update payload; supports `version_name`, all five parameter sections.
+ * @returns A promise resolving to the updated Simulation with all relations.
+ * @throws {HttpError} 404 if no simulation exists with the given ID.
+ */
 export async function updateFull(
   id: string,
   body: {
@@ -198,6 +274,16 @@ export async function updateFull(
   return simulationDA.findById(id);
 }
 
+/**
+ * Create an independent copy of a simulation with all its parameter tables.
+ *
+ * The clone is created in `Draft` status with `" (copy)"` appended to the version name.
+ * Planning, cost, revenue, economic parameters, and apartment mix are all deep-copied.
+ *
+ * @param id - The UUID of the simulation to clone.
+ * @returns A promise resolving to the newly created clone Simulation with all relations.
+ * @throws {HttpError} 404 if no simulation exists with the given ID.
+ */
 export async function clone(id: string) {
   const sim = await simulationDA.findById(id);
   if (!sim) throw new HttpError(404, 'Simulation not found');
@@ -238,12 +324,39 @@ export async function clone(id: string) {
   return simulationDA.findById(newSim.id);
 }
 
+/**
+ * Transition a simulation to a new status.
+ *
+ * @param id - The UUID of the simulation.
+ * @param status - The target `SimulationStatus` enum value.
+ * @returns A promise resolving to the updated Simulation with all relations.
+ * @throws {HttpError} 404 if no simulation exists with the given ID.
+ */
 export async function setStatus(id: string, status: SimulationStatus) {
   const sim = await simulationDA.findById(id);
   if (!sim) throw new HttpError(404, 'Simulation not found');
   return simulationDA.updateStatus(id, status);
 }
 
+/**
+ * Approve a simulation for calculation by setting its status to `Approved_For_Calc`.
+ *
+ * @param id - The UUID of the simulation to approve.
+ * @returns A promise resolving to the updated Simulation with all relations.
+ * @throws {HttpError} 404 if no simulation exists with the given ID.
+ */
+export async function approve(id: string) {
+  return setStatus(id, SimulationStatus.Approved_For_Calc);
+}
+
+/**
+ * Persist calculation results for a simulation, snapshotting any previous results
+ * into `previousResultsSnapshot` for later delta analysis.
+ *
+ * @param id - The UUID of the simulation.
+ * @param results - The results object produced by the calculation engine.
+ * @returns A promise resolving to the full Simulation after saving results.
+ */
 export async function saveResults(id: string, results: any) {
   // Snapshot previous results for delta analysis
   const existing = await paramDA.findResults(id);
@@ -254,4 +367,121 @@ export async function saveResults(id: string, results: any) {
 
   await paramDA.upsertResults(id, results);
   return simulationDA.findById(id);
+}
+
+/**
+ * Run the financial calculation engine against a simulation and persist the results.
+ *
+ * Transitions the simulation to `Completed` status upon success.
+ *
+ * @param id - The UUID of the simulation to calculate.
+ * @returns A promise resolving to the updated Simulation with `Completed` status and results.
+ * @throws {HttpError} 404 if no simulation exists with the given ID.
+ */
+export async function calculate(id: string) {
+  const sim = await getById(id);
+  const results = calculationService.runCalculations(sim);
+  await saveResults(id, results);
+  return simulationDA.updateStatus(id, SimulationStatus.Completed);
+}
+
+/**
+ * Start the 4-step AI agent pipeline for a simulation in a fire-and-forget manner.
+ *
+ * The pipeline runs asynchronously via `setImmediate`; this function returns
+ * immediately with `{ status: 'pipeline_started', simulation_id }`. Pipeline
+ * progress is streamed via SSE from a separate endpoint.
+ *
+ * @param id - The UUID of the simulation whose documents will be processed.
+ * @returns A promise resolving to a status acknowledgement object.
+ * @throws {HttpError} 404 if no simulation exists with the given ID.
+ */
+export async function triggerPipeline(id: string) {
+  await getById(id);
+
+  setImmediate(() => {
+    runSimulationPipeline(id).catch((err) => logger.error('Pipeline failed', err));
+  });
+
+  return { status: 'pipeline_started', simulation_id: id };
+}
+
+/**
+ * Compute a field-level delta between the current and previous calculation results.
+ *
+ * Compares key financial metrics (profit, IRR, NPV, revenue, costs) and returns
+ * absolute and percentage changes for any field that has changed.
+ *
+ * @param id - The UUID of the simulation.
+ * @returns An object with `has_delta` (boolean) and `deltas` (map of changed fields).
+ * @throws {HttpError} 404 if no simulation exists or no results are available yet.
+ */
+export async function getDeltaAnalysis(id: string) {
+  const sim = await getById(id);
+  if (!sim.simulationResults) throw new HttpError(404, 'No results for delta analysis');
+
+  const current = sim.simulationResults;
+  const previous = current.previousResultsSnapshot as any;
+  if (!previous) {
+    return { has_delta: false, deltas: {} };
+  }
+
+  const fieldMap: Record<string, string> = {
+    profit: 'profit',
+    profitabilityRate: 'profitability_rate',
+    irr: 'irr',
+    npv: 'npv',
+    totalRevenue: 'total_revenue',
+    netRevenue: 'net_revenue',
+    totalCosts: 'total_costs',
+    totalCostsInclVat: 'total_costs_incl_vat',
+    totalCostsExclVat: 'total_costs_excl_vat',
+    expectedProfit: 'expected_profit',
+    profitPercent: 'profit_percent',
+  };
+
+  const deltas: Record<string, { before: number; after: number; change: number; change_pct: number }> = {};
+  for (const [camelKey, snakeKey] of Object.entries(fieldMap)) {
+    const after = Number((current as any)[camelKey]) || 0;
+    const before = Number(previous[snakeKey] ?? previous[camelKey]) || 0;
+    if (after !== before) {
+      deltas[snakeKey] = {
+        before,
+        after,
+        change: after - before,
+        change_pct: before !== 0 ? ((after - before) / Math.abs(before)) * 100 : 0,
+      };
+    }
+  }
+
+  return { has_delta: Object.keys(deltas).length > 0, deltas };
+}
+
+/**
+ * Return the raw `SimulationResult` record for a completed simulation.
+ *
+ * @param id - The UUID of the simulation.
+ * @returns A promise resolving to the SimulationResult record.
+ * @throws {HttpError} 404 if no results exist yet.
+ */
+export async function getCalculationDetails(id: string) {
+  const sim = await getById(id);
+  if (!sim.simulationResults) throw new HttpError(404, 'No calculation results found');
+  return sim.simulationResults;
+}
+
+/**
+ * Return the AI-generated scenarios and optimizations from the alternatives agent.
+ *
+ * @param id - The UUID of the simulation.
+ * @returns An object with `scenarios` (Conservative/Base/Optimistic) and `optimizations` arrays.
+ * @throws {HttpError} 404 if no results exist yet.
+ */
+export async function getAlternatives(id: string) {
+  const sim = await getById(id);
+  if (!sim.simulationResults) throw new HttpError(404, 'No results found');
+  return {
+    scenarios: sim.simulationResults.scenarios,
+    optimizations: sim.simulationResults.optimizations,
+  };
 }

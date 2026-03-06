@@ -1,6 +1,8 @@
 /**
- * Agent 1: PDF Data Extraction using Anthropic SDK + forced tool use.
- * Supports tabu documents and planning/economic/general documents.
+ * @module document-extraction.service
+ * @description Agent 1: PDF data extraction using Anthropic SDK with forced tool use.
+ * Detects document type (tabu / planning / economic / general), then extracts structured
+ * parameters and persists them to the appropriate DB tables.
  */
 import { anthropic } from '../../config/anthropic';
 import { logger } from '../../config/logger';
@@ -52,6 +54,14 @@ const PARAMS_TOOL = {
   input_schema: paramsJsonSchema,
 };
 
+/**
+ * Calls the Anthropic API with forced `extract_tabu_data` tool use to pull
+ * structured land-registry information from a tabu document.
+ *
+ * @param text - Raw text content of the tabu document.
+ * @returns Parsed tabu data object as returned by the AI tool.
+ * @throws If the AI response contains no tool-use block.
+ */
 async function extractTabu(text: string): Promise<any> {
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -68,6 +78,14 @@ async function extractTabu(text: string): Promise<any> {
   return toolUse.input;
 }
 
+/**
+ * Calls the Anthropic API with forced `extract_parameters` tool use to pull
+ * planning, cost, revenue, and apartment-mix parameters from a non-tabu document.
+ *
+ * @param text - Raw text content of the document.
+ * @returns Parsed parameters object as returned by the AI tool.
+ * @throws If the AI response contains no tool-use block.
+ */
 async function extractParameters(text: string): Promise<any> {
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -84,6 +102,13 @@ async function extractParameters(text: string): Promise<any> {
   return toolUse.input;
 }
 
+/**
+ * Uses the AI to classify a document into one of: tabu, planning, economic, or general.
+ * Only the first 3000 characters are sent to keep token usage low.
+ *
+ * @param text - Raw text content of the document.
+ * @returns One of 'tabu' | 'planning' | 'economic' | 'general'.
+ */
 async function detectDocType(text: string): Promise<string> {
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
@@ -101,7 +126,14 @@ async function detectDocType(text: string): Promise<string> {
   return ['tabu', 'planning', 'economic', 'general'].includes(docType) ? docType : 'general';
 }
 
-/** Apply AI-extracted parameters to the simulation's parameter tables. */
+/**
+ * Applies AI-extracted parameter values to the simulation's parameter tables.
+ * Maps snake_case extraction fields to camelCase Prisma model fields and calls
+ * the appropriate upsert helpers. Skips sections with no data.
+ *
+ * @param simulationId - The simulation to update.
+ * @param extracted - Structured output from the `extract_parameters` AI tool.
+ */
 async function applyExtractedToSimulation(simulationId: string, extracted: any) {
   try {
     if (extracted.planning) {
@@ -163,6 +195,21 @@ async function applyExtractedToSimulation(simulationId: string, extracted: any) 
   }
 }
 
+/**
+ * Orchestrates end-to-end AI extraction for a single document.
+ *
+ * Steps:
+ * 1. Marks the document as Processing.
+ * 2. Reads the pre-extracted text from the DB (populated by the PDF parser).
+ * 3. Detects the document type (honours an explicit hint / stored type to avoid misclassification).
+ * 4. Runs the appropriate extraction tool (tabu vs. parameters).
+ * 5. Persists the results and marks the document Completed (or Failed on error).
+ *
+ * @param docId - The document ID to extract.
+ * @param projectId - The project the document belongs to (used to save tabu data).
+ * @param hintDocumentType - Optional explicit document-type override (e.g. 'tabu').
+ * @returns `{ success: true, doc_type, data }` on success, or `{ success: false, error }` on failure.
+ */
 export async function runDocumentExtraction(
   docId: string,
   projectId: string,

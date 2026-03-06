@@ -1,5 +1,8 @@
 /**
- * Agent 3: Calculation Agent — runs financial calculations + AI validation.
+ * @module calculation-review.service
+ * @description Agent 3: Calculation Agent — runs the financial calculation engine and then
+ * passes the results through an AI sanity check. Produces a combined result with numeric
+ * outputs and Hebrew-language validation notes.
  */
 import { anthropic } from '../../config/anthropic';
 import { logger } from '../../config/logger';
@@ -24,6 +27,14 @@ Return a JSON object:
   "summary": "brief one-line summary in Hebrew"
 }`;
 
+/**
+ * Sends calculation results to Claude for a Hebrew-language financial sanity check.
+ * Parses the JSON response and returns a structured validation object.
+ * Returns `null` on any error to allow the pipeline to continue without a validation note.
+ *
+ * @param results - Calculation results object (profit, IRR, NPV, revenue, costs, units).
+ * @returns Validation object with `{ is_sane, concerns, suggestions, summary }`, or `null` on failure.
+ */
 async function validateResultsWithAI(results: any): Promise<any> {
   try {
     const response = await anthropic.messages.create({
@@ -60,6 +71,16 @@ async function validateResultsWithAI(results: any): Promise<any> {
   }
 }
 
+/**
+ * Validates that the simulation has all required inputs, runs the financial calculation
+ * engine, then optionally enriches the results with AI validation notes.
+ *
+ * @param sim - Full simulation record including all parameter relations (planningParameters,
+ *              costParameters, revenueParameters, etc.).
+ * @returns On success: `{ success: true, results, ai_validation_notes, ai_validation }`.
+ *          On validation failure: `{ success: false, error, validation }`.
+ *          On calculation failure: `{ success: false, error }`.
+ */
 export async function runCalculationReview(sim: any): Promise<any> {
   // Step 1: Validate inputs
   const validation = validateSimulationReady(sim);

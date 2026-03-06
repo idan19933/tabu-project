@@ -1,3 +1,11 @@
+/**
+ * @file app.ts
+ * @description Configures and exports the Express application instance.
+ * Sets up security middleware (helmet, CORS, rate limiting), HTTP logging,
+ * JSON body parsing, snake_case response serialization, API routing,
+ * a health check endpoint, optional static frontend serving, and error handlers.
+ */
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -26,7 +34,7 @@ app.use(
   })
 );
 
-// Rate limiting
+// Rate limiting — 500 requests per 5-minute window per IP
 app.use(
   rateLimit({
     windowMs: 5 * 60 * 1000,

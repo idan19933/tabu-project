@@ -1,6 +1,7 @@
 /**
- * Orchestrator: Coordinates the 4-step agent pipeline with SSE streaming.
- * Extract → Research → Calculate → Alternatives
+ * @module pipeline.service
+ * @description Orchestrates the 4-step agent pipeline (Extract → Research → Calculate → Alternatives)
+ * with SSE event streaming. Maintains an in-memory event store keyed by simulation ID.
  */
 import { logger } from '../../config/logger';
 import { prisma } from '../../config/prisma';
@@ -17,11 +18,28 @@ import type { AgentEvent, AgentStatus } from '../../types/agent';
 // In-memory SSE event store
 const agentStreams = new Map<string, AgentEvent[]>();
 
+/**
+ * Returns pipeline SSE events for a simulation that occurred after the given index.
+ * Used by the SSE endpoint to stream only new events to connected clients.
+ *
+ * @param simId - The simulation ID.
+ * @param after - Return only events with an index greater than this value (default 0).
+ * @returns Array of {@link AgentEvent} objects emitted after the specified index.
+ */
 export function getPipelineEvents(simId: string, after = 0): AgentEvent[] {
   const events = agentStreams.get(simId) || [];
   return events.filter((e) => e.index > after);
 }
 
+/**
+ * Persists an agent step status update to the database and appends a new SSE event
+ * to the in-memory event store for the simulation.
+ *
+ * @param simId - The simulation ID.
+ * @param step - The pipeline step name (e.g. 'extraction', 'research').
+ * @param status - Current status of the step.
+ * @param details - Optional arbitrary metadata to attach to the event.
+ */
 async function updateAgentStatus(
   simId: string,
   step: string,
@@ -52,6 +70,13 @@ async function updateAgentStatus(
   agentStreams.set(simId, events);
 }
 
+/**
+ * Pipeline step 1: Runs document extraction for all unprocessed documents
+ * belonging to the simulation's project.
+ *
+ * @param simId - The simulation ID.
+ * @throws If the simulation cannot be found.
+ */
 async function runExtractionStep(simId: string) {
   await updateAgentStatus(simId, 'extraction', 'running');
 
@@ -76,6 +101,13 @@ async function runExtractionStep(simId: string) {
   });
 }
 
+/**
+ * Pipeline step 2: Identifies missing simulation fields and attempts to fill them
+ * by re-reading the uploaded document texts via the research agent.
+ *
+ * @param simId - The simulation ID.
+ * @throws If the simulation cannot be found.
+ */
 async function runResearchStep(simId: string) {
   await updateAgentStatus(simId, 'research', 'running');
 
@@ -124,6 +156,13 @@ async function runResearchStep(simId: string) {
   });
 }
 
+/**
+ * Routes AI-discovered field values to the correct parameter table
+ * (planning, cost, or revenue) and persists them via upsert.
+ *
+ * @param simId - The simulation ID.
+ * @param foundFields - Map of field names to their discovered values.
+ */
 async function applyFoundFields(simId: string, foundFields: Record<string, any>) {
   const planningFields: any = {};
   const costFields: any = {};
@@ -147,6 +186,13 @@ async function applyFoundFields(simId: string, foundFields: Record<string, any>)
   if (Object.keys(revenueFields).length > 0) await paramDA.upsertRevenue(simId, revenueFields);
 }
 
+/**
+ * Pipeline step 3: Runs the financial calculation engine, then passes the results
+ * through AI validation. Saves results and transitions simulation to Completed on success.
+ *
+ * @param simId - The simulation ID.
+ * @throws If the simulation cannot be found.
+ */
 async function runCalculationStep(simId: string) {
   await updateAgentStatus(simId, 'calculation', 'running');
 
@@ -169,6 +215,13 @@ async function runCalculationStep(simId: string) {
   });
 }
 
+/**
+ * Pipeline step 4: Generates Conservative/Base/Optimistic scenarios and
+ * AI optimization recommendations, then persists them to the simulation results.
+ *
+ * @param simId - The simulation ID.
+ * @throws If the simulation cannot be found.
+ */
 async function runAlternativesStep(simId: string) {
   await updateAgentStatus(simId, 'alternatives', 'running');
 
@@ -190,6 +243,16 @@ async function runAlternativesStep(simId: string) {
   });
 }
 
+/**
+ * Runs the full 4-step agent pipeline for a simulation.
+ * Initialises the in-memory SSE event store, transitions the simulation status
+ * to AI_Extracting, then executes each step sequentially.
+ * On failure, a pipeline-level error event is pushed to the event store.
+ *
+ * @param simId - The ID of the simulation to process.
+ * @returns An object containing `{ status: 'completed', simulation_id }` on success.
+ * @throws Re-throws any unhandled pipeline error after recording it in the event store.
+ */
 export async function runSimulationPipeline(simId: string): Promise<any> {
   agentStreams.set(simId, []);
 

@@ -1,6 +1,17 @@
+/**
+ * @file config/logger.ts
+ * @description Configures and exports the Winston logger instance.
+ * In production only file transports are active (error.log + combined.log).
+ * In non-production environments a colorised console transport is also added.
+ */
+
 import winston from 'winston';
 import { env } from './env';
 
+/**
+ * Singleton Winston logger with JSON formatting and timestamp.
+ * Log files are written to `logs/error.log` (errors only) and `logs/combined.log` (all levels).
+ */
 export const logger = winston.createLogger({
   level: 'info',
   format: winston.format.combine(
