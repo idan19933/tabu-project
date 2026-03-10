@@ -2,6 +2,7 @@ import type {
   AlternativesOut,
   ApplyResearchResponse,
   CompareOut,
+  DataSourcesResponse,
   DeltaAnalysis,
   DocumentBrief,
   DocumentOut,
@@ -131,14 +132,16 @@ export const getMissingFields = (simId: string) =>
   request<MissingFields>(`/simulations/${simId}/missing-fields`);
 export const getAlternatives = (simId: string) =>
   request<AlternativesOut>(`/simulations/${simId}/alternatives`);
+export const getDataSources = (simId: string) =>
+  request<DataSourcesResponse>(`/simulations/${simId}/data-sources`);
 
 // --- Documents by Simulation ---
 export const getSimulationDocuments = (simId: string) =>
   request<DocumentBrief[]>(`/documents/by-simulation/${simId}`);
 
 // --- Market Research ---
-export const triggerResearch = (projectId: string) =>
-  request<{ status: string; message: string }>(`/projects/${projectId}/research`, { method: 'POST' });
+export const triggerResearch = (projectId: string, force?: boolean) =>
+  request<{ status: string; message: string }>(`/projects/${projectId}/research${force ? '?force=true' : ''}`, { method: 'POST' });
 export const getResearch = (projectId: string) =>
   request<MarketResearchResponse>(`/projects/${projectId}/research`);
 export const previewResearch = (projectId: string, simulationId: string) =>

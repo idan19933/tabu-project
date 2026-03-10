@@ -1,0 +1,73 @@
+"""Shared field label definitions for Clarity/Tabu parameter display.
+
+Maps DB column name → (section_he, label_he) for all planning/cost/revenue fields.
+Used by research preview, apply-research, and data-sources endpoints.
+"""
+
+FIELD_LABELS: dict[str, tuple[str, str]] = {
+    # Planning
+    "returns_percent": ("תכנון", "% החזר"),
+    "avg_apt_size_sqm": ("תכנון", 'שטח דירה ממוצע (מ"ר)'),
+    "number_of_floors": ("תכנון", "מספר קומות"),
+    "coverage_above_ground": ("תכנון", "% כיסוי מעל קרקע"),
+    "coverage_underground": ("תכנון", "% כיסוי מתחת קרקע"),
+    "multiplier_far": ("תכנון", "מכפיל זכויות"),
+    "blue_line_area": ("תכנון", 'שטח קו כחול (מ"ר)'),
+    "parking_standard_ratio": ("תכנון", "יחס חנייה"),
+    "gross_area_per_parking": ("תכנון", 'שטח ברוטו לחנייה (מ"ר)'),
+    "service_area_percent": ("תכנון", "% שטחי שירות"),
+    "balcony_area_per_unit": ("תכנון", 'מרפסת ליחידה (מ"ר)'),
+    "return_area_per_apt": ("תכנון", 'תוספת שטח תמורה (מ"ר)'),
+    "service_area_sqm": ("תכנון", 'שטחי שירות (מ"ר)'),
+    "public_area_sqm": ("תכנון", 'שטחים ציבוריים (מ"ר)'),
+    "parking_floor_area": ("תכנון", 'שטח קומת חניה (מ"ר)'),
+    "typ_floor_area_min": ("תכנון", 'שטח קומה טיפוסית מינ׳ (מ"ר)'),
+    "typ_floor_area_max": ("תכנון", 'שטח קומה טיפוסית מקס׳ (מ"ר)'),
+    "apts_per_floor_min": ("תכנון", "דירות לקומה מינ׳"),
+    "apts_per_floor_max": ("תכנון", "דירות לקומה מקס׳"),
+    # Cost — absolute
+    "cost_per_sqm_residential": ("עלויות", 'עלות בנייה למ"ר מגורים'),
+    "cost_per_sqm_service": ("עלויות", 'עלות בנייה למ"ר שירות'),
+    "cost_per_sqm_commercial": ("עלויות", 'עלות בנייה למ"ר מסחר'),
+    "cost_per_sqm_balcony": ("עלויות", 'עלות בנייה למ"ר מרפסות'),
+    "cost_per_sqm_development": ("עלויות", 'עלות פיתוח למ"ר'),
+    "betterment_levy": ("עלויות", "היטל השבחה"),
+    "purchase_tax": ("עלויות", "מס רכישה"),
+    "electricity_connection": ("עלויות", "חיבור חשמל"),
+    "rent_subsidy": ("עלויות", "שכ\"ד דירות תמורה"),
+    "evacuation_cost": ("עלויות", "פינוי דירות"),
+    "moving_cost": ("עלויות", "הובלה"),
+    "demolition": ("עלויות", "הריסה"),
+    "parking_construction": ("עלויות", "בניית חניון"),
+    # Cost — percentage
+    "planning_consultants_pct": ("עלויות", "תכנון ויועצים (%)"),
+    "permits_fees_pct": ("עלויות", "אגרות והיטלים (%)"),
+    "bank_supervision_pct": ("עלויות", "פיקוח בנקאי (%)"),
+    "engineering_management_pct": ("עלויות", "ניהול הנדסי (%)"),
+    "tenant_supervision_pct": ("עלויות", "פיקוח דיירים (%)"),
+    "management_overhead_pct": ("עלויות", "ניהול ותקורה (%)"),
+    "marketing_advertising_pct": ("עלויות", "פרסום ושיווק (%)"),
+    "tenant_lawyer_pct": ("עלויות", 'עו"ד דיירים (%)'),
+    "developer_lawyer_pct": ("עלויות", 'עו"ד יזם (%)'),
+    "contingency_pct": ("עלויות", 'בצ"מ (%)'),
+    "initiation_fee_pct": ("עלויות", "דמי ייזום (%)"),
+    "construction_duration_months": ("עלויות", "משך בנייה (חודשים)"),
+    "financing_interest_rate": ("עלויות", "ריבית מימון"),
+    "cpi_linkage_pct": ("עלויות", "הצמדה למדד (%)"),
+    # Revenue
+    "price_per_sqm_residential": ("הכנסות", 'מחיר מכירה מגורים (₪/מ"ר)'),
+    "price_per_sqm_commercial": ("הכנסות", 'מחיר מכירה מסחר (₪/מ"ר)'),
+    "price_per_sqm_parking": ("הכנסות", "מחיר חנייה (₪)"),
+    "price_per_sqm_storage": ("הכנסות", "מחיר מחסן (₪)"),
+    "sales_pace_per_month": ("הכנסות", "קצב מכירות (יח׳/חודש)"),
+    "marketing_discount_pct": ("הכנסות", "הנחת שיווק (%)"),
+    # Results (calculated)
+    "profit": ("תוצאות", "רווח יזמי"),
+    "expected_profit": ("תוצאות", "רווח צפוי"),
+    "profitability_rate": ("תוצאות", "שיעור רווחיות"),
+    "irr": ("תוצאות", "IRR"),
+    "npv": ("תוצאות", "NPV"),
+    "total_revenue": ("תוצאות", "סה״כ הכנסות"),
+    "total_costs": ("תוצאות", "סה״כ עלויות"),
+    "vat_rate": ("עלויות", "מע״מ (%)"),
+}

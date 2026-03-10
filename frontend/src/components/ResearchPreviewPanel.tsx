@@ -15,12 +15,14 @@ import {
   ShieldCheck,
   Info,
   RefreshCw,
+  Zap,
+  XCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { previewResearch, applyResearch } from '../api';
 import Button from './ui/Button';
 import Card from './ui/Card';
-import type { ResearchPreviewField, ResearchPreviewResponse, ResearchSummary } from '../types';
+import type { ResearchPreviewField, ResearchPreviewResponse, ResearchSummary, LiveDataSources } from '../types';
 
 interface ResearchPreviewPanelProps {
   projectId: string;
@@ -50,6 +52,55 @@ function ConfidenceBadge({ level }: { level: string }) {
     <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${colors}`}>
       {level === 'high' ? 'גבוה' : level === 'medium' ? 'בינוני' : level || '—'}
     </span>
+  );
+}
+
+function LiveDataStatusBar({ sources }: { sources: LiveDataSources }) {
+  const items: { key: string; label: string; ok: boolean }[] = [];
+  if (sources.cbs_construction_index) {
+    const cbs = sources.cbs_construction_index;
+    items.push({
+      key: 'cbs',
+      label: cbs.status === 'success'
+        ? `מדד CBS עדכני (${cbs.value})`
+        : 'מדד CBS — לא זמין',
+      ok: cbs.status === 'success',
+    });
+  }
+  if (sources.geocode) {
+    items.push({
+      key: 'geocode',
+      label: sources.geocode.status === 'success' ? 'מיקום מאומת' : 'מיקום — לא זמין',
+      ok: sources.geocode.status === 'success',
+    });
+  }
+  if (sources.nadlan_deals) {
+    const nd = sources.nadlan_deals;
+    items.push({
+      key: 'nadlan',
+      label: nd.status === 'success'
+        ? `${nd.count} עסקאות נדל"ן`
+        : 'עסקאות נדל"ן — לא זמין',
+      ok: nd.status === 'success',
+    });
+  }
+  if (items.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-3 mb-3 text-xs">
+      <Zap size={12} className="text-green-500 shrink-0" />
+      <span className="text-green-700 font-medium">נתונים חיים:</span>
+      {items.map((item) => (
+        <span key={item.key} className="inline-flex items-center gap-1">
+          {item.ok ? (
+            <CheckCircle2 size={11} className="text-green-500" />
+          ) : (
+            <XCircle size={11} className="text-slate-400" />
+          )}
+          <span className={item.ok ? 'text-green-600' : 'text-slate-400'}>{item.label}</span>
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -218,6 +269,11 @@ export default function ResearchPreviewPanel({
               </span>
             ))}
           </div>
+        )}
+
+        {/* Live data status indicators */}
+        {preview.live_data_sources && Object.keys(preview.live_data_sources).length > 0 && (
+          <LiveDataStatusBar sources={preview.live_data_sources} />
         )}
 
         {/* Validation fixes warnings */}

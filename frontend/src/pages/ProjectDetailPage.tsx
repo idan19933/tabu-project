@@ -1,9 +1,10 @@
-import { ChevronDown, ChevronUp, FileText, Plus, Users, Shield, AlertTriangle, Landmark, Building2, Copy, Upload, Brain, Search, Loader2, MapPin } from 'lucide-react';
+import { ChevronDown, FileText, Plus, Users, Shield, AlertTriangle, Landmark, Building2, Copy, Upload, Brain, Search, Loader2, MapPin } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createSimulation, cloneSimulation, getProject, uploadDocument, triggerResearch } from '../api';
 import toast from 'react-hot-toast';
+import BuildingMap from '../components/BuildingMap';
 import AnimatedPage from '../components/ui/AnimatedPage';
 import Badge from '../components/ui/Badge';
 import Button from '../components/ui/Button';
@@ -386,7 +387,20 @@ export default function ProjectDetailPage() {
 
       {/* Tabu Data — Upload zone / extracting / completed-empty / preview */}
       {hasTabuData ? (
-        <TabuPreview data={project.tabu_data!} />
+        <>
+          <TabuPreview data={project.tabu_data!} />
+          {/* Building Map — show when gush/chelka available */}
+          {(project.tabu_data as Record<string, unknown>)?.block && (project.tabu_data as Record<string, unknown>)?.parcel && (
+            <section className="mb-6">
+              <BuildingMap
+                gush={String((project.tabu_data as Record<string, unknown>).block)}
+                chelka={String((project.tabu_data as Record<string, unknown>).parcel)}
+                address={(project.tabu_data as Record<string, unknown>).address as string | undefined}
+                city={(project.tabu_data as Record<string, unknown>).city as string | undefined}
+              />
+            </section>
+          )}
+        </>
       ) : isTabuExtracting ? (
         /* Tabu extraction in progress */
         <section className="mb-6">
@@ -508,6 +522,37 @@ export default function ProjectDetailPage() {
       )}
 
       {/* Market Research Status */}
+      {hasTabuData && !isResearchRunning && !isResearchDone && researchStatus !== 'failed' && (
+        <section className="mb-6">
+          <Card>
+            <div className="flex items-center gap-3 py-1">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-slate-100">
+                <Search size={20} className="text-slate-500" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-slate-700">מחקר שוק אוטומטי</p>
+                <p className="text-xs text-slate-400">חיפוש נתוני שוק, מחירים ועלויות בנייה לאזור הנכס</p>
+              </div>
+              <Button
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await triggerResearch(id!);
+                    refetch();
+                    toast.success('מחקר שוק הופעל');
+                  } catch {
+                    toast.error('שגיאה בהפעלת מחקר שוק');
+                  }
+                }}
+              >
+                <Search size={14} />
+                הפעל מחקר
+              </Button>
+            </div>
+          </Card>
+        </section>
+      )}
+
       {hasTabuData && isResearchRunning && (
         <section className="mb-6">
           <Card>
@@ -555,6 +600,22 @@ export default function ProjectDetailPage() {
                   )}
                 </p>
               </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={async () => {
+                  try {
+                    await triggerResearch(id!, true);
+                    refetch();
+                    toast.success('מחקר שוק הופעל מחדש');
+                  } catch {
+                    toast.error('שגיאה בהפעלת מחקר שוק');
+                  }
+                }}
+              >
+                <Search size={14} />
+                הפעל מחדש
+              </Button>
             </div>
             <p className="text-xs text-slate-400 mt-2">
               ערכי ברירת מחדל מבוססי שוק יוחלו אוטומטית בסימולציה חדשה

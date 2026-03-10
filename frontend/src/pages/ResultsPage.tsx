@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   Layers,
   Lightbulb,
+  Database,
 } from 'lucide-react';
 import { useEffect, useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -33,6 +34,7 @@ import {
 import { getSimulation, getProjectSimulations, downloadReport, getDeltaAnalysis, getParameterSensitivity, getAlternatives, runPipeline } from '../api';
 import ScenariosComparison from '../components/results/ScenariosComparison';
 import AIRecommendations from '../components/results/AIRecommendations';
+import DataSourcesPanel from '../components/results/DataSourcesPanel';
 import toast from 'react-hot-toast';
 import AnimatedPage from '../components/ui/AnimatedPage';
 import Card from '../components/ui/Card';
@@ -285,7 +287,7 @@ function ParameterSensitivitySection({ simId }: { simId: string }) {
   );
 }
 
-type ResultsTab = 'results' | 'alternatives' | 'ai';
+type ResultsTab = 'results' | 'alternatives' | 'ai' | 'sources';
 
 export default function ResultsPage() {
   const { id } = useParams<{ id: string }>();
@@ -443,6 +445,7 @@ export default function ResultsPage() {
             { key: 'results' as const, label: 'תוצאות', icon: BarChart3 },
             { key: 'alternatives' as const, label: 'חלופות', icon: Layers },
             { key: 'ai' as const, label: 'המלצות AI', icon: Lightbulb },
+            { key: 'sources' as const, label: 'מקורות נתונים', icon: Database },
           ]).map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -530,6 +533,11 @@ export default function ResultsPage() {
               aiNotes={alternatives?.ai_validation_notes ?? null}
             />
           )
+        )}
+
+        {/* Data Sources Tab */}
+        {activeTab === 'sources' && id && (
+          <DataSourcesPanel simId={id} />
         )}
 
         {/* Results Tab — existing content */}
