@@ -215,9 +215,14 @@ export default function SimulationWorkspace() {
   }, [pipelineTriggered, isComplete, refetch]);
 
   // Detect pipeline completion from polled data (SSE fallback)
+  // Check that agent_status shows all steps done (not just sim status === Completed)
   useEffect(() => {
     if (!pipelineTriggered || isComplete) return;
-    if (sim?.status === 'Completed' && sim?.simulation_results) {
+    const agent = sim?.agent_status as Record<string, { status?: string }> | null | undefined;
+    const allDone = agent
+      && agent.alternatives
+      && (agent.alternatives.status === 'completed' || agent.alternatives.status === 'failed');
+    if (allDone && sim?.simulation_results) {
       toast.success('החישוב הושלם — מעבר לתוצאות');
       setTimeout(() => navigate(`/simulations/${id}/results`), 2000);
     }

@@ -1,8 +1,11 @@
 /**
- * Agent 2: Research Agent — searches uploaded documents for missing field values.
+ * @module missing-field-research.service
+ * @description Agent 2: Research Agent — re-reads uploaded document texts to find values
+ * for simulation fields that were not extracted during the initial document-extraction pass.
+ * Uses a plain Anthropic text completion (no forced tool use) and parses JSON from the response.
  */
-import { anthropic } from '../../../config/anthropic';
-import { logger } from '../../../config/logger';
+import { anthropic } from '../../config/anthropic';
+import { logger } from '../../config/logger';
 
 const RESEARCH_SYSTEM_PROMPT = `You are a research expert specialized in Israeli real estate feasibility documents.
 
@@ -30,6 +33,18 @@ Return a JSON object with exactly this structure:
 
 Only include fields you can confidently extract. Use the exact field names provided.`;
 
+/**
+ * Searches all uploaded document texts for the given list of missing field names
+ * and returns any values found along with their textual sources.
+ *
+ * Returns an empty result immediately when `missingFields` is empty.
+ * On AI or JSON-parse failure, returns all fields as still-missing and logs the error.
+ *
+ * @param missingFields - CamelCase field names that need to be located (e.g. `['blueLineArea', 'costPerSqmResidential']`).
+ * @param documentTexts - Array of `{ filename, text }` objects representing all documents for the simulation.
+ * @returns Object containing `found_fields` (field→value map), `still_missing` (field names not found),
+ *          and `sources` (evidence quotes with confidence scores).
+ */
 export async function researchMissingFields(
   missingFields: string[],
   documentTexts: Array<{ filename: string; text: string }>

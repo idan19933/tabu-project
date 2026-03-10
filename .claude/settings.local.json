@@ -18,7 +18,8 @@
       "Bash(npx ts-node:*)",
       "Bash(mv:*)",
       "Bash(npx tsx:*)",
-      "Bash(npm ls:*)"
+      "Bash(npm ls:*)",
+      "Bash(grep:*)"
     ]
   }
 }

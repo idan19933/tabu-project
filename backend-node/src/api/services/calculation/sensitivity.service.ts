@@ -1,9 +1,15 @@
 /**
- * Per-parameter sensitivity analysis.
- * Varies individual parameters ±10%, ±20% and captures profit/IRR/profit_pct.
+ * @module sensitivity.service
+ * Per-parameter sensitivity analysis for urban-renewal simulations.
+ *
+ * Varies each of the eight key input parameters by ±10% and ±20% relative to
+ * its base value, re-runs the full calculation engine for each variant, and
+ * captures the resulting profit, IRR, and profit percentage.
+ *
+ * The output drives the sensitivity tornado chart on the frontend.
  */
 import { runCalculations } from './calculation.service';
-import { safe } from '../../utils/safe';
+import { safe } from '../../../utils/safe';
 
 const SENSITIVITY_PARAMS: Array<[string, string, string]> = [
   ['numberOfFloors', 'מספר קומות', 'planning'],
@@ -18,11 +24,33 @@ const SENSITIVITY_PARAMS: Array<[string, string, string]> = [
 
 const CHANGE_PCTS = [-20, -10, 10, 20];
 
+/**
+ * Shallow-clone a parameter object so the original simulation is never mutated during analysis.
+ *
+ * @param obj - Any parameter record (planning, cost, or revenue).
+ * @returns A shallow copy of `obj`, or `null` if the input is falsy.
+ */
 function cloneParam(obj: any): any {
   if (!obj) return null;
   return { ...obj };
 }
 
+/**
+ * Run per-parameter sensitivity analysis across eight key simulation inputs.
+ *
+ * For each parameter in `SENSITIVITY_PARAMS`, the function:
+ *  1. Records the base value.
+ *  2. Creates four variants (−20%, −10%, +10%, +20% of base).
+ *  3. Runs the full calculation engine for each variant.
+ *  4. Collects `profit`, `irr`, and `profit_pct` for each variant.
+ *
+ * Parameters with a base value of 0 are skipped to avoid division-by-zero artefacts.
+ * If the calculation engine throws for a variant, zeros are recorded for that entry.
+ *
+ * @param sim - A full Prisma simulation record with all parameter relations loaded.
+ * @returns An object with `base_profit`, `base_irr`, `base_profit_pct`, and a `parameters`
+ *   array — one entry per input, each containing the base value and four variant results.
+ */
 export function runParameterSensitivity(sim: any): any {
   const baseResults = runCalculations(sim);
   const baseProfit = baseResults.expectedProfit ?? baseResults.profit ?? 0;

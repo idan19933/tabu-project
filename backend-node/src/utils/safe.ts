@@ -1,6 +1,14 @@
 /**
- * Safely convert a Prisma Decimal, number, or null to a plain number.
- * Returns `defaultVal` if the value is null, undefined, or NaN.
+ * @module safe
+ * Utility for safely converting Prisma Decimal values and other unknown types to plain numbers.
+ */
+
+/**
+ * Safely convert a Prisma Decimal, number, string, or null/undefined to a plain number.
+ *
+ * @param val - The value to convert; accepts Prisma Decimal objects, numbers, strings, null, or undefined.
+ * @param defaultVal - The fallback value returned when `val` is null, undefined, or NaN. Defaults to `0`.
+ * @returns A plain JavaScript number, or `defaultVal` if conversion is not possible.
  */
 export function safe(
   val: unknown,

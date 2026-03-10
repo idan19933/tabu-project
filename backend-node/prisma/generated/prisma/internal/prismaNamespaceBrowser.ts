@@ -111,6 +111,7 @@ export const DocumentScalarFieldEnum = {
   documentType: 'documentType',
   docType: 'docType',
   filePath: 'filePath',
+  extractedText: 'extractedText',
   uploadDate: 'uploadDate',
   extractionStatus: 'extractionStatus',
   extractionError: 'extractionError',

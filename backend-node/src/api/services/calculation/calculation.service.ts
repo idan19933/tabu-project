@@ -1,16 +1,27 @@
 /**
- * Financial calculation engine for real estate feasibility simulations.
+ * @module calculation.service
+ * Financial calculation engine for real estate urban-renewal feasibility simulations.
  *
  * Implements all formulas from the Shikun & Binui pilot Excel spec:
- *   Section 2: מצב יוצא (proposed state)
- *   Section 3: פרוגרמה (program)
- *   Section 4: עלויות (costs)
- *   Section 5: הכנסות + רווח (revenue + profit)
+ *   Section 2: מצב יוצא  — Proposed state (total/return/developer units and areas)
+ *   Section 3: פרוגרמה  — Building program (service areas, parking, balconies, floors)
+ *   Section 4: עלויות   — Cost breakdown (construction, additional costs, VAT, financing)
+ *   Section 5: הכנסות + רווח — Revenue, profit, IRR, NPV, and monthly cash flow
+ *
+ * Public API:
+ *  - `validateSimulationReady` — pre-flight check before calculation
+ *  - `extractParams`           — normalise Prisma simulation data into a `SimParams` struct
+ *  - `calcProposedState`       — Section 2
+ *  - `calcBuildingProgram`     — Section 3
+ *  - `calcCosts`               — Section 4
+ *  - `calcRevenue`             — Section 5 (revenue portion)
+ *  - `calcCashflowIrrNpv`      — Section 5 (financial metrics)
+ *  - `runCalculations`         — orchestrates all sections and returns the full results object
  */
 import { irr as calcIrr, npv as calcNpv } from 'financial';
-import { safe } from '../../utils/safe';
-import type { SimParams, ProposedState, BuildingProgram } from '../../types/simulation';
-import type { CostBreakdown, RevenueBreakdown, FinancialResults } from '../../types/calculation';
+import { safe } from '../../../utils/safe';
+import type { SimParams, ProposedState, BuildingProgram } from '../../../types/simulation';
+import type { CostBreakdown, RevenueBreakdown, FinancialResults } from '../../../types/calculation';
 
 // ─── Validation ──────────────────────────────────────────────────────────────
 
@@ -32,6 +43,17 @@ const REQUIRED_REVENUE_FIELDS: Record<string, string> = {
   pricePerSqmResidential: 'מחיר מכירה למגורים (₪/מ"ר)',
 };
 
+/**
+ * Validate that a simulation has all required parameters before the calculation engine is run.
+ *
+ * Checks planning, cost, revenue, and apartment-mix data for missing or zero-value fields.
+ * Supports both the new dedicated parameter tables and the legacy `economicParameters` table.
+ * Emits non-blocking `warnings` for suspicious (but non-blocking) values.
+ *
+ * @param sim - A full Prisma simulation record (with all parameter relations loaded).
+ * @returns An object describing readiness: `ready`, `missing_planning`, `missing_cost`,
+ *   `missing_revenue`, `missing_mix`, `warnings`, and `missing_economic`.
+ */
 export function validateSimulationReady(sim: any): any {
   const missingPlanning: string[] = [];
   const missingCost: string[] = [];
@@ -109,20 +131,51 @@ export function validateSimulationReady(sim: any): any {
 
 // ─── Core helpers ────────────────────────────────────────────────────────────
 
+/**
+ * Calculate gross developer profit.
+ *
+ * @param totalRevenue - Total net revenue (ILS).
+ * @param totalCosts - Total costs including VAT (ILS).
+ * @returns Developer profit (ILS).
+ */
 function calculateProfit(totalRevenue: number, totalCosts: number): number {
   return totalRevenue - totalCosts;
 }
 
+/**
+ * Calculate profitability as a percentage of total costs (Israeli standard).
+ *
+ * @param profit - Developer profit (ILS).
+ * @param totalCosts - Total costs including VAT (ILS).
+ * @returns Profitability rate as a percentage (0–100+). Returns 0 when costs are 0.
+ */
 function calculateProfitabilityRate(profit: number, totalCosts: number): number {
   if (totalCosts === 0) return 0;
   return (profit / totalCosts) * 100;
 }
 
+/**
+ * Calculate the Net Present Value of a cash-flow series.
+ *
+ * @param cashFlows - Ordered array of periodic cash flows (ILS).
+ * @param discountRate - Periodic (monthly) discount rate as a decimal.
+ * @returns NPV in ILS, or 0 if inputs are empty or rate is 0.
+ */
 function calculateNpv(cashFlows: number[], discountRate: number): number {
   if (!cashFlows.length || discountRate === 0) return 0;
   return calcNpv(discountRate, cashFlows);
 }
 
+/**
+ * Calculate the Internal Rate of Return (IRR) for a cash-flow series.
+ *
+ * Returns the annualised IRR as a percentage (e.g. 15 for 15%).
+ * Returns 0 when the series has fewer than 2 entries or when the `financial`
+ * library cannot converge on a solution.
+ *
+ * @param cashFlows - Ordered array of periodic cash flows (ILS), must contain at least one negative entry.
+ * @returns IRR as an annualised percentage, or 0 on failure.
+ */
 function calculateIrr(cashFlows: number[]): number {
   if (cashFlows.length < 2) return 0;
   try {
@@ -136,6 +189,16 @@ function calculateIrr(cashFlows: number[]): number {
 
 // ─── Extract params from Prisma simulation ───────────────────────────────────
 
+/**
+ * Normalise a full Prisma simulation record into a flat `SimParams` struct consumed by the calculation engine.
+ *
+ * Handles both the new dedicated parameter tables (`planningParameters`, `costParameters`,
+ * `revenueParameters`) and the legacy `economicParameters` table, setting appropriate
+ * defaults when individual fields are absent or zero.
+ *
+ * @param sim - A full Prisma simulation record with all parameter relations loaded.
+ * @returns A normalised `SimParams` struct ready for `calcProposedState` and downstream functions.
+ */
 export function extractParams(sim: any): SimParams {
   const pp = sim.planningParameters;
   const cp = sim.costParameters;
@@ -268,6 +331,21 @@ export function extractParams(sim: any): SimParams {
 
 // ─── Section 2: מצב יוצא (Proposed State) ────────────────────────────────────
 
+/**
+ * Section 2 — Compute the proposed development state.
+ *
+ * Determines total/return/developer unit counts and their corresponding residential areas.
+ * Return units are the apartments given back to existing tenants; developer units are sold.
+ *
+ * Key outputs:
+ *  - `totalUnits` / `totalResidentialArea` — full building programme totals
+ *  - `returnUnits` / `totalReturnFloorplate` — tenants' share
+ *  - `developerUnits` / `developerFloorplate` — developer's sellable share
+ *  - `combinationRatio` — developer area / return area (viability indicator)
+ *
+ * @param params - Normalised simulation parameters from `extractParams`.
+ * @returns A `ProposedState` object with unit counts and area breakdowns.
+ */
 export function calcProposedState(params: SimParams): ProposedState {
   const totalUnits = params.mix.reduce((sum, a) => sum + a.quantity, 0);
   const totalResidentialArea = totalUnits * params.avgAptSize;
@@ -297,6 +375,25 @@ export function calcProposedState(params: SimParams): ProposedState {
 
 // ─── Section 3: פרוגרמה (Program) ────────────────────────────────────────────
 
+/**
+ * Section 3 — Compute the building programme (areas, floors, parking, balconies).
+ *
+ * Derives above-ground areas, parking requirements, and development land from the proposed
+ * state and planning parameters. The `blueLineArea` (land registry boundary) is used when
+ * available to calculate floor plate size; otherwise it is inferred from floor count.
+ *
+ * Key outputs:
+ *  - `serviceAreas` — internal stairwell / corridor areas (m²)
+ *  - `totalAboveGround` — total gross above-ground area (m²)
+ *  - `floorArea` — single floor plate size per building (m²)
+ *  - `maxBuildings` — number of towers required
+ *  - `totalParkingSpots` / `totalParkingArea` — underground parking programme
+ *  - `totalBalconyArea` — aggregate balcony area (m²)
+ *
+ * @param params - Normalised simulation parameters from `extractParams`.
+ * @param proposed - Proposed state output from `calcProposedState`.
+ * @returns A `BuildingProgram` object with full area and parking programme.
+ */
 export function calcBuildingProgram(params: SimParams, proposed: ProposedState): BuildingProgram {
   const serviceAreas =
     params.serviceAreaSqm > 0
@@ -363,12 +460,40 @@ export function calcBuildingProgram(params: SimParams, proposed: ProposedState):
 
 // ─── Section 4: עלויות (Costs) ──────────────────────────────────────────────
 
+/**
+ * Resolve a cost item that may be expressed as either an absolute ILS amount or a percentage of a base.
+ *
+ * If `absolute` is non-zero it takes precedence; otherwise the percentage of `base` is used.
+ *
+ * @param absolute - Explicit cost value in ILS (overrides percentage if > 0).
+ * @param pct - Percentage of `base` to use when `absolute` is 0.
+ * @param base - The base amount (usually total construction cost) against which `pct` is applied.
+ * @returns Resolved cost in ILS.
+ */
 function resolveCost(absolute: number, pct: number, base: number): number {
   if (absolute > 0) return absolute;
   if (pct > 0) return base * (pct / 100);
   return 0;
 }
 
+/**
+ * Section 4 — Compute the full cost breakdown.
+ *
+ * Calculates all cost categories in order:
+ *  1. Direct construction costs (residential, service, commercial, balcony, development, parking)
+ *  2. Additional soft costs (betterment levy, purchase tax, consultants, bank supervision, etc.)
+ *     — each may be entered as an absolute ILS amount or as a percentage of construction cost
+ *  3. CPI linkage uplift (applied to total pre-financing cost)
+ *  4. Financing cost (average outstanding balance × annual rate × duration)
+ *  5. VAT (applied to the post-financing total)
+ *
+ * Falls back to the legacy `economicParameters` percentage model when new cost tables are absent.
+ *
+ * @param params - Normalised simulation parameters from `extractParams`.
+ * @param proposed - Proposed state output from `calcProposedState`.
+ * @param program - Building programme output from `calcBuildingProgram`.
+ * @returns A `CostBreakdown` object with every line item and aggregate totals.
+ */
 export function calcCosts(params: SimParams, proposed: ProposedState, program: BuildingProgram): CostBreakdown {
   const constructionResidential = proposed.developerFloorplate * params.costSqmRes;
   const constructionService = program.serviceAreas * params.costSqmService;
@@ -385,7 +510,7 @@ export function calcCosts(params: SimParams, proposed: ProposedState, program: B
     params.constructionTotalOverride > 0
       ? params.constructionTotalOverride
       : constructionResidential + constructionService + constructionPublic +
-        constructionBalcony + constructionDevelopment + parkingConstruction;
+      constructionBalcony + constructionDevelopment + parkingConstruction;
 
   // Resolve percentage-based costs
   const resolvedPlanningConsultants = resolveCost(params.planningConsultants, params.planningConsultantsPct, constructionCost);
@@ -473,6 +598,24 @@ export function calcCosts(params: SimParams, proposed: ProposedState, program: B
 
 // ─── Section 5: הכנסות + רווח (Revenue + Profit) ────────────────────────────
 
+/**
+ * Section 5 — Compute revenue, marketing discount, and developer profit.
+ *
+ * Revenue is calculated in two modes:
+ *  - **Per-type pricing**: if `pricePerUnitByType` is populated, each apartment type
+ *    in the mix is priced individually; this is the preferred model.
+ *  - **Per-sqm pricing**: fallback using `priceSqmRes × developerFloorplate`.
+ *
+ * Commercial, parking, and storage revenues are added on top when applicable.
+ * A marketing discount percentage (if set) is subtracted from total revenue to
+ * arrive at `netRevenue`.
+ *
+ * @param params - Normalised simulation parameters from `extractParams`.
+ * @param proposed - Proposed state output from `calcProposedState`.
+ * @param program - Building programme output from `calcBuildingProgram`.
+ * @param costs - Cost breakdown output from `calcCosts`.
+ * @returns A `RevenueBreakdown` with revenue by source, net revenue, profit, and profit percentages.
+ */
 export function calcRevenue(
   params: SimParams,
   proposed: ProposedState,
@@ -530,6 +673,22 @@ export function calcRevenue(
 
 // ─── Cash Flow / IRR / NPV ──────────────────────────────────────────────────
 
+/**
+ * Section 5 (financial metrics) — Build a monthly cash-flow series and compute IRR and NPV.
+ *
+ * Construction costs are spread evenly across the first 80% of the timeline.
+ * Unit sales begin at 40% of the timeline at a configurable pace (`salesPace`),
+ * with revenue spread until all developer units are sold.
+ *
+ * IRR is computed via the `financial` library's `irr()` function (Newton-Raphson).
+ * NPV is discounted at the monthly financing rate.
+ *
+ * @param params - Normalised simulation parameters from `extractParams`.
+ * @param proposed - Proposed state output from `calcProposedState`.
+ * @param costs - Cost breakdown output from `calcCosts`.
+ * @param revenue - Revenue breakdown output from `calcRevenue`.
+ * @returns A `FinancialResults` object with `cashFlows` array, `irr` (%), and `npv` (ILS).
+ */
 export function calcCashflowIrrNpv(
   params: SimParams,
   proposed: ProposedState,
@@ -576,6 +735,21 @@ export function calcCashflowIrrNpv(
 
 // ─── Main calculation engine ─────────────────────────────────────────────────
 
+/**
+ * Orchestrate all calculation sections and return the complete results object persisted to `SimulationResult`.
+ *
+ * Runs the pipeline in order: extractParams → calcProposedState → calcBuildingProgram
+ * → calcCosts → calcRevenue (with parking/storage patch) → calcCashflowIrrNpv.
+ *
+ * Returns a flat object combining all section outputs plus structured breakdowns
+ * (`costBreakdown`, `revenueBreakdown`, `areaBreakdown`, `calculationDetails`) and
+ * the key KPIs consumed by the frontend (`profit`, `profitabilityRate`, `irr`, `npv`, etc.).
+ *
+ * All monetary values are rounded to 2 decimal places via the internal `r()` helper.
+ *
+ * @param sim - A full Prisma simulation record with all parameter relations loaded.
+ * @returns A plain object suitable for direct persistence into `SimulationResult`.
+ */
 export function runCalculations(sim: any): any {
   const params = extractParams(sim);
   const proposed = calcProposedState(params);

@@ -1,5 +1,6 @@
 /**
- * Agent: Market Research — 5-step location-based research using Anthropic web_search tool.
+ * @module market-research.service
+ * @description Agent: Market Research — 5-step location-based research using Anthropic web_search tool.
  *
  * Pipeline:
  * 1. Identify location from tabu data (gush/chelka → address → neighborhood)
@@ -8,13 +9,22 @@
  * 4. Search sales prices in the area
  * 5. Calculate feasible parameters (pure math + validation)
  */
-import { anthropic } from '../../../config/anthropic';
-import { logger } from '../../../config/logger';
-import { safe } from '../../../utils/safe';
+import { anthropic } from '../../config/anthropic';
+import { logger } from '../../config/logger';
+import { safe } from '../../utils/safe';
 
 // Locked fields from tabu — never overwritten
 const LOCKED_FIELDS = ['blue_line_area', 'existing_units', 'existing_area', 'floors_existing'];
 
+/**
+ * Sends a query to Claude with the `web_search` tool enabled and parses the response.
+ * Attempts to extract a JSON object from the response text (including markdown code blocks).
+ * Returns `{ raw_text }` if JSON parsing fails, or `null` if the API call itself errors.
+ *
+ * @param query - The Hebrew-language research query to send.
+ * @param systemPrompt - System instructions that frame Claude's role for this search step.
+ * @returns Parsed JSON result, `{ raw_text }` fallback, or `null` on API error.
+ */
 async function searchWithClaude(query: string, systemPrompt: string): Promise<any> {
   try {
     const response = await anthropic.messages.create({
@@ -50,6 +60,13 @@ async function searchWithClaude(query: string, systemPrompt: string): Promise<an
   }
 }
 
+/**
+ * Step 1: Resolves the property's street address and neighborhood from its
+ * tabu gush/chelka identifiers using a web search.
+ *
+ * @param tabuData - Tabu extraction object containing `block`, `parcel`, and optional `address`.
+ * @returns Location object with `{ address, neighborhood, city, district }`.
+ */
 async function step1IdentifyLocation(tabuData: any): Promise<any> {
   const gush = tabuData.block || '';
   const chelka = tabuData.parcel || '';
@@ -64,6 +81,13 @@ async function step1IdentifyLocation(tabuData: any): Promise<any> {
   return result || { address, neighborhood: '', city: '', district: '' };
 }
 
+/**
+ * Step 2: Searches for applicable municipal building plans (תב"ע) and zoning
+ * restrictions for the resolved location.
+ *
+ * @param location - Location object returned by {@link step1IdentifyLocation}.
+ * @returns Zoning object with `{ plans, max_floors, far, conservation }`.
+ */
 async function step2LookupZoning(location: any): Promise<any> {
   const query = `חפש תוכניות בנין עיר (תב"ע) עבור ${location.address || location.neighborhood || ''}, ${location.city || ''}.
 מה זכויות הבנייה? FAR? מספר קומות מותר? שימור?
@@ -73,6 +97,12 @@ async function step2LookupZoning(location: any): Promise<any> {
     'You are an Israeli urban planning expert. Search for applicable building plans and zoning. Return JSON.');
 }
 
+/**
+ * Step 3: Searches for current construction costs (per sqm) in the area.
+ *
+ * @param location - Location object returned by {@link step1IdentifyLocation}.
+ * @returns Cost object with `{ cost_per_sqm_residential, betterment_levy_per_unit, financing_rate }`.
+ */
 async function step3SearchCosts(location: any): Promise<any> {
   const query = `חפש עלויות בנייה עדכניות באזור ${location.neighborhood || location.city || 'ישראל'}.
 כמה עולה בנייה למ"ר? היטל השבחה? ריבית מימון נהוגה?
@@ -82,6 +112,12 @@ async function step3SearchCosts(location: any): Promise<any> {
     'You are an Israeli construction cost expert. Search for current construction costs. Return JSON with numbers.');
 }
 
+/**
+ * Step 4: Searches for current market sale prices for new-construction units in the area.
+ *
+ * @param location - Location object returned by {@link step1IdentifyLocation}.
+ * @returns Price object with `{ price_per_sqm_residential, price_per_sqm_commercial, price_per_sqm_parking, price_per_sqm_storage }`.
+ */
 async function step4SearchPrices(location: any): Promise<any> {
   const query = `חפש מחירי מכירה עדכניים עבור דירות חדשות באזור ${location.neighborhood || location.city || 'ישראל'}.
 כמה עולה מ"ר מגורים? מסחרי? חנייה? מחסן?
@@ -91,6 +127,23 @@ async function step4SearchPrices(location: any): Promise<any> {
     'You are an Israeli real estate pricing expert. Search for current sale prices for new construction. Return JSON with numbers.');
 }
 
+/**
+ * Step 5: Assembles the full parameter set from the prior research steps using
+ * sensible defaults for any values that could not be retrieved via web search.
+ * Applies business-rule validation (e.g., commercial price must be ≤ residential,
+ * returns_percent clamped to 20–45%).
+ * Does NOT overwrite locked tabu fields (e.g. `blue_line_area` comes from tabu only
+ * when the tabu data contains it).
+ *
+ * @param tabuData - Tabu extraction data (provides locked fields such as area_sqm).
+ * @param location - Result of step 1.
+ * @param zoning - Result of step 2 (may be null if search failed).
+ * @param costs - Result of step 3 (may be null if search failed).
+ * @param prices - Result of step 4 (may be null if search failed).
+ * @returns Complete parameter payload with `planning_parameters`, `cost_parameters`,
+ *          `revenue_parameters`, `apartment_mix`, `research_summary`, `data_sources`,
+ *          and `_metadata` (confidence scores).
+ */
 function step5GenerateParameters(
   tabuData: any,
   location: any,
@@ -180,6 +233,15 @@ function step5GenerateParameters(
   };
 }
 
+/**
+ * Runs the full 5-step market research pipeline for a project.
+ * On any unhandled error, falls back to calling {@link step5GenerateParameters}
+ * with empty/null inputs to return a default parameter set rather than throwing.
+ *
+ * @param tabuData - Tabu extraction data for the project (provides block/parcel/area).
+ * @param projectId - The project ID (used for logging only).
+ * @returns Complete parameter payload (same shape as {@link step5GenerateParameters}).
+ */
 export async function runMarketResearch(tabuData: any, projectId: string): Promise<any> {
   logger.info(`Starting market research for project ${projectId}`);
 

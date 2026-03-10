@@ -64,7 +64,8 @@ model Document {
   simulationId     String?          @map("simulation_id") @db.Uuid
   documentType     String           @map("document_type")
   docType          String?          @map("doc_type") @db.VarChar(50)
-  filePath         String           @map("file_path")
+  filePath         String?          @map("file_path")
+  extractedText    String?          @map("extracted_text")
   uploadDate       DateTime         @default(now()) @map("upload_date") @db.Timestamptz
   extractionStatus ExtractionStatus @default(Pending) @map("extraction_status")
   extractionError  String?          @map("extraction_error")

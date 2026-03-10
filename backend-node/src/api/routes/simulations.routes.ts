@@ -1,8 +1,35 @@
+/**
+ * @file simulations.routes.ts
+ * @description Express router for the full simulation lifecycle.
+ * Base path: `/api/simulations`
+ *
+ * Routes:
+ *  GET    /:id                        → getSimulation
+ *  PUT    /:id                        → updateSimulation
+ *  POST   /:id/clone                  → cloneSimulation
+ *  GET    /:id/review                 → reviewSimulation
+ *  PUT    /:id/approve                → approveSimulation
+ *  GET    /:id/validation             → validateSimulation
+ *  POST   /:id/calculate              → calculateSimulation
+ *  GET    /:id/report/management      → downloadManagementReport (XLSX)
+ *  GET    /:id/report/economic        → downloadEconomicReport (XLSX)
+ *  GET    /:id/calculation-details    → getCalculationDetails
+ *  GET    /:id/delta                  → getDeltaAnalysis
+ *  GET    /:id/sensitivity            → getSensitivity
+ *  GET    /:id/compare/:otherId       → compareSimulations
+ *  POST   /:id/run-pipeline           → triggerPipeline
+ *  GET    /:id/agent-stream           → agentStream (SSE)
+ *  GET    /:id/missing-fields         → getMissingFields
+ *  GET    /:id/alternatives           → getAlternatives
+ *  GET    /:id/agent-status           → getAgentStatus
+ */
+
 import { Router } from 'express';
 import { validate } from '../../middlewares';
 import { simulationIdSchema, fullUpdateSchema, compareSchema } from '../schemas/simulation.schema';
 import * as controller from '../controllers/simulations.controller';
 
+/** Router exported and mounted at `/api/simulations` in the root API router. */
 export const simulationsRouter = Router();
 
 simulationsRouter.get('/:id', validate(simulationIdSchema), controller.getSimulation);

@@ -1,11 +1,15 @@
 /**
- * Excel report generation using exceljs.
- * Two report types matching the Shikun & Binui client format:
- *   - Management Report (דוח ניהולי): Sections 1-3
- *   - Economic Report (דוח כלכלי): Sections 4-5
+ * @module report.service
+ * Excel report generation using ExcelJS.
+ *
+ * Produces two RTL Hebrew report types matching the Shikun & Binui client format:
+ *   - Management Report (דוח ניהולי): high-level KPIs, proposed state, building programme, and apartment mix.
+ *   - Economic Report (דוח כלכלי): full cost/revenue breakdown, monthly cash-flow table, and 5×5 sensitivity matrix.
+ *
+ * Both reports use Arial font, Israeli currency formatting, and a right-to-left worksheet view.
  */
 import ExcelJS from 'exceljs';
-import { safe } from '../../utils/safe';
+import { safe } from '../../../utils/safe';
 
 // ─── Style constants ─────────────────────────────────────────────────────────
 
@@ -36,6 +40,15 @@ const CENTER_ALIGN: Partial<ExcelJS.Alignment> = { horizontal: 'center', vertica
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/**
+ * Apply fill, font, RTL alignment, and thin border to every cell in a worksheet row.
+ *
+ * @param ws - The ExcelJS worksheet to style.
+ * @param rowNum - 1-based row index.
+ * @param cols - Number of columns to style (starting from column 1).
+ * @param fill - Optional background fill pattern.
+ * @param font - Optional font override; defaults to `CELL_FONT`.
+ */
 function styleRow(ws: ExcelJS.Worksheet, rowNum: number, cols: number, fill?: ExcelJS.FillPattern, font?: Partial<ExcelJS.Font>) {
   for (let c = 1; c <= cols; c++) {
     const cell = ws.getCell(rowNum, c);
@@ -46,6 +59,15 @@ function styleRow(ws: ExcelJS.Worksheet, rowNum: number, cols: number, fill?: Ex
   }
 }
 
+/**
+ * Write a full-width merged section header row with a dark-blue background.
+ *
+ * @param ws - The ExcelJS worksheet.
+ * @param rowNum - 1-based row index to write into.
+ * @param title - Hebrew section title text.
+ * @param cols - Number of columns to merge across (default 4).
+ * @returns The next available row number (rowNum + 1).
+ */
 function writeSectionHeader(ws: ExcelJS.Worksheet, rowNum: number, title: string, cols = 4): number {
   ws.mergeCells(rowNum, 1, rowNum, cols);
   ws.getCell(rowNum, 1).value = title;
@@ -53,6 +75,18 @@ function writeSectionHeader(ws: ExcelJS.Worksheet, rowNum: number, title: string
   return rowNum + 1;
 }
 
+/**
+ * Write a key-value data row (label in column A, value in column B).
+ *
+ * @param ws - The ExcelJS worksheet.
+ * @param rowNum - 1-based row index to write into.
+ * @param label - Hebrew label text for the row.
+ * @param value - The cell value (number, string, or Date).
+ * @param fmt - Optional ExcelJS number format string (e.g. `'#,##0'`).
+ * @param bold - Whether to use bold font (default `false`).
+ * @param highlight - Optional row background: `'green'` (positive) or `'red'` (negative).
+ * @returns The next available row number (rowNum + 1).
+ */
 function writeKvRow(ws: ExcelJS.Worksheet, rowNum: number, label: string, value: any, fmt?: string, bold = false, highlight?: string): number {
   ws.getCell(rowNum, 1).value = label;
   const cellV = ws.getCell(rowNum, 2);
@@ -73,6 +107,15 @@ function writeKvRow(ws: ExcelJS.Worksheet, rowNum: number, label: string, value:
   return rowNum + 1;
 }
 
+/**
+ * Extract all numeric results from a simulation's `simulationResults` relation.
+ *
+ * Provides safe defaults for missing fields so report generation never crashes on
+ * an incomplete simulation: JSON fields default to `{}` or `[]`, numeric fields to `0`.
+ *
+ * @param sim - A full Prisma simulation record.
+ * @returns A flat record of all result field names mapped to their values (numbers, arrays, or objects).
+ */
 function getAllResults(sim: any): Record<string, any> {
   const r = sim.simulationResults;
   if (!r) return {};
@@ -92,6 +135,16 @@ function getAllResults(sim: any): Record<string, any> {
 
 // ─── Management Report ───────────────────────────────────────────────────────
 
+/**
+ * Generate the Management Report (דוח ניהולי) as an XLSX buffer.
+ *
+ * Contains: KPI summary, proposed state (Section 2), building programme (Section 3),
+ * and apartment mix table. Works even when `simulationResults` is null — missing
+ * values are substituted with zeros via `getAllResults`.
+ *
+ * @param sim - A full Prisma simulation record (with all parameter relations loaded).
+ * @returns A promise resolving to a Node.js `Buffer` containing the XLSX file bytes.
+ */
 export async function generateManagementReport(sim: any): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('דוח ניהולי');
@@ -180,6 +233,16 @@ export async function generateManagementReport(sim: any): Promise<Buffer> {
 
 // ─── Economic Report ─────────────────────────────────────────────────────────
 
+/**
+ * Generate the Economic Report (דוח כלכלי) as an XLSX buffer.
+ *
+ * Contains: construction costs, additional soft costs, financing costs, revenue breakdown,
+ * developer profit, monthly cash-flow table, and a 5×5 revenue/cost sensitivity matrix.
+ * Works even when `simulationResults` is null — missing values are substituted with zeros.
+ *
+ * @param sim - A full Prisma simulation record (with all parameter relations loaded).
+ * @returns A promise resolving to a Node.js `Buffer` containing the XLSX file bytes.
+ */
 export async function generateEconomicReport(sim: any): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('דוח כלכלי');
